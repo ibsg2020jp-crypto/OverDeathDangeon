@@ -38,9 +38,7 @@ const $ = id => document.getElementById(id);
 
 function makeNewState() {
   return {
-    x: 1,
-    y: 1,
-    dir: 1,
+    x: 1, y: 1, dir: 1,
     level: 1,
     baseMaxHp: 34,
     baseAttack: 5,
@@ -109,8 +107,9 @@ function setMessage(message, face = "neutral") {
 function turn(delta) {
   if (state.cleared) return;
   state.dir = (state.dir + delta + 4) % 4;
-  setMessage(`${DIRS[state.dir].name}を向いた。`, "neutral");
   render();
+  if (maybeShowLookTutorial()) return;
+  setMessage(`${DIRS[state.dir].name}を向いた。`, "neutral");
 }
 function forward() {
   if (state.cleared) return;
@@ -133,17 +132,38 @@ function forward() {
   state.x = nx;
   state.y = ny;
   if (tile === "P" && !state.potionTaken) {
-    state.tutorialPotionSeen = true;
     state.potionTaken = true;
     state.hp = Math.min(state.maxHp, state.hp + 18);
-    setMessage("アイテムがあります。近づくと使用できます。\n回復薬を使い、HPが回復しました。", "smile");
+    setMessage("回復薬です。体力が回復しました。", "smile");
   } else if (tile === "X") {
     clearGame();
   } else {
-    setMessage("湿った通路を進む。", "neutral");
+    render();
+    if (!maybeShowLookTutorial()) setMessage("湿った通路を進む。", "neutral");
+    save(false);
+    return;
   }
   render();
   save(false);
+}
+function maybeShowLookTutorial() {
+  const front1 = forwardCell(1);
+  const front2 = forwardCell(2);
+  const t1 = tileAt(front1.x, front1.y);
+  const t2 = tileAt(front2.x, front2.y);
+  if (!state.enemyDefeated && (t1 === "E" || t2 === "E") && !state.tutorialEnemySeen) {
+    state.tutorialEnemySeen = true;
+    setMessage("敵と遭遇しました。戦いましょう。", "angry");
+    save(false);
+    return true;
+  }
+  if (!state.potionTaken && (t1 === "P" || t2 === "P") && !state.tutorialPotionSeen) {
+    state.tutorialPotionSeen = true;
+    setMessage("アイテムがあります。近づいて使用しましょう。", "smile");
+    save(false);
+    return true;
+  }
+  return false;
 }
 function fightEnemy() {
   const enemyHp = 12;
@@ -240,7 +260,6 @@ function render() {
   drawMiniMap();
   updateViewSprite();
 }
-
 function basis() {
   const f = DIRS[state.dir];
   return { f, l: { dx: -f.dy, dy: f.dx } };
@@ -254,31 +273,37 @@ function forwardCell(depth) { return viewCell(depth, 0); }
 function drawDungeonView() {
   const c = $("viewCanvas");
   const ctx = c.getContext("2d");
-  const w = c.width;
-  const h = c.height;
-  const view = makeViewGrid();
-  ctx.clearRect(0, 0, w, h);
-  drawBaseDungeon(ctx, w, h);
-  drawCurrentSidePanels(ctx, view);
-  drawDepthSidePanels(ctx, view, 2);
-  drawDepthSidePanels(ctx, view, 1);
-  drawForwardSpace(ctx, view);
-  drawVisibleObjects(ctx, view);
-}
+  ctx.clearRect(0, 0, c.width, c.height);
+  drawBaseDungeon(ctx, c.width, c.height);
 
-function makeViewGrid() {
-  const rows = [];
-  for (let depth = 0; depth <= 2; depth++) {
-    const row = {};
-    for (let side = -1; side <= 1; side++) {
-      const p = viewCell(depth, side);
-      row[side] = { ...p, tile: tileAt(p.x, p.y) };
+  const rects = [
+    { x: -18, y: -8, w: 396, h: 276 },
+    { x: 50, y: 32, w: 260, h: 198 },
+    { x: 94, y: 60, w: 172, h: 146 },
+    { x: 128, y: 84, w: 104, h: 98 },
+    { x: 154, y: 104, w: 52, h: 58 },
+  ];
+
+  drawFarFogWall(ctx, rects[4]);
+
+  // 遠いマスから近いマスへ描画する。近い壁がある場合は必ず上から隠す。
+  for (let depth = 4; depth >= 1; depth--) {
+    const center = viewCell(depth, 0);
+    const near = rects[depth - 1];
+    const far = rects[depth];
+
+    drawSideWallIfNeeded(ctx, near, far, depth, -1);
+    drawSideWallIfNeeded(ctx, near, far, depth, 1);
+
+    if (isSolid(center.x, center.y)) {
+      drawFrontWall(ctx, far, depth);
+    } else {
+      drawOpeningFrame(ctx, far, depth);
     }
-    rows.push(row);
   }
-  return rows;
-}
 
+  drawVisibleObjects(ctx);
+}
 function drawBaseDungeon(ctx, w, h) {
   const gradCeil = ctx.createLinearGradient(0, 0, 0, h / 2);
   gradCeil.addColorStop(0, "#151817");
@@ -297,73 +322,29 @@ function drawBaseDungeon(ctx, w, h) {
   ctx.lineTo(w, h / 2);
   ctx.stroke();
 }
-
-function drawCurrentSidePanels(ctx, view) {
-  if (view[0][-1].tile === "#") {
-    drawPoly(ctx, [[0, 0], [72, 45], [72, 215], [0, 260]], "#6b6048", true);
-    drawBrickTexture(ctx, 0, 0, 78, 260, 1.35);
-  }
-  if (view[0][1].tile === "#") {
-    drawPoly(ctx, [[360, 0], [288, 45], [288, 215], [360, 260]], "#6b6048", true);
-    drawBrickTexture(ctx, 282, 0, 78, 260, 1.35);
-  }
+function drawSideWallIfNeeded(ctx, near, far, depth, side) {
+  const cell = viewCell(depth - 1, side);
+  if (!isSolid(cell.x, cell.y)) return;
+  const pts = side < 0
+    ? [[near.x, near.y], [far.x, far.y], [far.x, far.y + far.h], [near.x, near.y + near.h]]
+    : [[near.x + near.w, near.y], [far.x + far.w, far.y], [far.x + far.w, far.y + far.h], [near.x + near.w, near.y + near.h]];
+  const color = depth === 1 ? "#75694d" : depth === 2 ? "#685d45" : depth === 3 ? "#554c39" : "#40382a";
+  drawPoly(ctx, pts, color, true);
+  drawPerspectiveBricks(ctx, pts, depth);
 }
-function drawDepthSidePanels(ctx, view, depth) {
-  const near = depth === 1
-    ? { leftTop: [72, 45], leftBottom: [72, 215], rightTop: [288, 45], rightBottom: [288, 215], color: "#62583f" }
-    : { leftTop: [118, 72], leftBottom: [118, 188], rightTop: [242, 72], rightBottom: [242, 188], color: "#4f4634" };
-  const far = depth === 1
-    ? { leftTop: [118, 72], leftBottom: [118, 188], rightTop: [242, 72], rightBottom: [242, 188] }
-    : { leftTop: [152, 94], leftBottom: [152, 166], rightTop: [208, 94], rightBottom: [208, 166] };
-  if (view[depth][-1].tile === "#") {
-    drawPoly(ctx, [near.leftTop, far.leftTop, far.leftBottom, near.leftBottom], near.color, true);
-    drawPerspectiveBricks(ctx, [near.leftTop, far.leftTop, far.leftBottom, near.leftBottom]);
-  }
-  if (view[depth][1].tile === "#") {
-    drawPoly(ctx, [near.rightTop, far.rightTop, far.rightBottom, near.rightBottom], near.color, true);
-    drawPerspectiveBricks(ctx, [near.rightTop, far.rightTop, far.rightBottom, near.rightBottom]);
-  }
-}
-function drawForwardSpace(ctx, view) {
-  if (view[1][0].tile === "#") {
-    drawFrontWall(ctx, { x: 72, y: 45, w: 216, h: 170 }, 1);
-    return;
-  }
-  drawOpeningFrame(ctx, { x: 72, y: 45, w: 216, h: 170 }, 1);
-  if (view[2][0].tile === "#") {
-    drawFrontWall(ctx, { x: 118, y: 72, w: 124, h: 116 }, 2);
-    return;
-  }
-  drawOpeningFrame(ctx, { x: 118, y: 72, w: 124, h: 116 }, 2);
-  drawFarFogWall(ctx);
-}
-function drawFarFogWall(ctx) {
-  const g = ctx.createRadialGradient(180, 130, 4, 180, 130, 74);
-  g.addColorStop(0, "rgba(35,39,36,.96)");
-  g.addColorStop(.62, "rgba(18,20,19,.96)");
-  g.addColorStop(1, "rgba(0,0,0,.98)");
-  ctx.fillStyle = g;
-  ctx.fillRect(152, 94, 56, 72);
-  ctx.strokeStyle = "#050505";
-  ctx.lineWidth = 5;
-  ctx.strokeRect(152, 94, 56, 72);
-  ctx.fillStyle = "rgba(0,0,0,.25)";
-  for (let i = 0; i < 12; i++) {
-    ctx.beginPath();
-    ctx.arc(160 + Math.random() * 42, 100 + Math.random() * 60, 10 + Math.random() * 16, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-function drawVisibleObjects(ctx, view) {
+function drawVisibleObjects(ctx) {
   const slots = [
     { depth: 1, rect: { x: 112, y: 82, w: 136, h: 144 }, scale: 1 },
     { depth: 2, rect: { x: 146, y: 100, w: 68, h: 82 }, scale: .62 },
+    { depth: 3, rect: { x: 164, y: 114, w: 34, h: 44 }, scale: .38 },
   ];
   for (const slot of slots) {
-    const center = view[slot.depth][0];
-    if (center.tile === "E" && !state.enemyDefeated) { drawEnemyHint(ctx, slot.rect); continue; }
-    if (center.tile === "P" && !state.potionTaken) { drawPotionHint(ctx, slot.rect, slot.scale); continue; }
-    if (center.tile === "X") { drawExitHint(ctx, slot.rect, slot.scale); continue; }
+    const center = forwardCell(slot.depth);
+    const t = tileAt(center.x, center.y);
+    if (t === "#") return;
+    if (t === "E" && !state.enemyDefeated) { drawEnemyHint(ctx, slot.rect); return; }
+    if (t === "P" && !state.potionTaken) { drawPotionHint(ctx, slot.rect, slot.scale); return; }
+    if (t === "X") { drawExitHint(ctx, slot.rect, slot.scale); return; }
   }
 }
 function drawEnemyHint(ctx, rect) {
@@ -402,27 +383,31 @@ function drawExitHint(ctx, rect, scale) {
   ctx.restore();
 }
 function drawOpeningFrame(ctx, rect, depth) {
-  ctx.strokeStyle = depth === 1 ? "rgba(255,255,255,.22)" : "rgba(255,255,255,.13)";
-  ctx.lineWidth = depth === 1 ? 4 : 3;
+  ctx.strokeStyle = depth === 1 ? "rgba(255,255,255,.20)" : "rgba(255,255,255,.10)";
+  ctx.lineWidth = depth === 1 ? 4 : 2;
   ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-  ctx.strokeStyle = "rgba(0,0,0,.25)";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(rect.x, rect.y);
-  ctx.lineTo(rect.x + rect.w / 2, 130);
-  ctx.lineTo(rect.x, rect.y + rect.h);
-  ctx.moveTo(rect.x + rect.w, rect.y);
-  ctx.lineTo(rect.x + rect.w / 2, 130);
-  ctx.lineTo(rect.x + rect.w, rect.y + rect.h);
-  ctx.stroke();
 }
 function drawFrontWall(ctx, rect, depth) {
-  ctx.fillStyle = depth === 1 ? "#766a4e" : "#5d523d";
+  ctx.fillStyle = depth === 1 ? "#7a6e51" : depth === 2 ? "#645940" : depth === 3 ? "#4e4636" : "#342f28";
   ctx.strokeStyle = "#050505";
-  ctx.lineWidth = 6;
+  ctx.lineWidth = depth === 1 ? 7 : 5;
   ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
   ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-  drawBrickTexture(ctx, rect.x, rect.y, rect.w, rect.h, depth === 1 ? 1 : .74);
+  drawBrickTexture(ctx, rect.x, rect.y, rect.w, rect.h, depth === 1 ? 1 : Math.max(.42, 1 / depth));
+}
+function drawFarFogWall(ctx, rect) {
+  const g = ctx.createRadialGradient(180, 130, 4, 180, 130, 86);
+  g.addColorStop(0, "rgba(42,46,42,.96)");
+  g.addColorStop(.58, "rgba(16,18,17,.96)");
+  g.addColorStop(1, "rgba(0,0,0,.98)");
+  ctx.fillStyle = g;
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.strokeStyle = "#050505";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.fillStyle = "rgba(0,0,0,.22)";
+  const fog = [[160,112,17],[188,118,22],[174,138,19],[198,150,15],[154,150,14]];
+  fog.forEach(([x, y, r]) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); });
 }
 function drawBrickTexture(ctx, x, y, w, h, scale = 1) {
   ctx.save();
@@ -430,47 +415,35 @@ function drawBrickTexture(ctx, x, y, w, h, scale = 1) {
   ctx.rect(x, y, w, h);
   ctx.clip();
   ctx.strokeStyle = "rgba(0,0,0,.50)";
-  ctx.lineWidth = Math.max(2, 3 * scale);
+  ctx.lineWidth = Math.max(1.5, 3 * scale);
   const rowH = 22 * scale;
   const brickW = 50 * scale;
   for (let yy = y + rowH; yy < y + h; yy += rowH) {
-    ctx.beginPath();
-    ctx.moveTo(x, yy);
-    ctx.lineTo(x + w, yy);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + w, yy); ctx.stroke();
   }
   for (let row = 0, yy = y; yy < y + h; row++, yy += rowH) {
     const offset = row % 2 ? brickW / 2 : 0;
     for (let xx = x - offset; xx < x + w; xx += brickW) {
-      ctx.beginPath();
-      ctx.moveTo(xx, yy);
-      ctx.lineTo(xx, yy + rowH);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(xx, yy); ctx.lineTo(xx, yy + rowH); ctx.stroke();
     }
   }
   ctx.restore();
 }
-function drawPerspectiveBricks(ctx, pts) {
+function drawPerspectiveBricks(ctx, pts, depth) {
   ctx.save();
   ctx.strokeStyle = "rgba(0,0,0,.42)";
-  ctx.lineWidth = 2;
+  ctx.lineWidth = Math.max(1, 3 - depth * .35);
   for (let i = 1; i <= 4; i++) {
     const t = i / 5;
     const a = lerpPoint(pts[0], pts[3], t);
     const b = lerpPoint(pts[1], pts[2], t);
-    ctx.beginPath();
-    ctx.moveTo(a[0], a[1]);
-    ctx.lineTo(b[0], b[1]);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
   }
   for (let i = 1; i <= 3; i++) {
     const t = i / 4;
     const a = lerpPoint(pts[0], pts[1], t);
     const b = lerpPoint(pts[3], pts[2], t);
-    ctx.beginPath();
-    ctx.moveTo(a[0], a[1]);
-    ctx.lineTo(b[0], b[1]);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
   }
   ctx.restore();
 }
@@ -482,34 +455,30 @@ function drawPoly(ctx, pts, fill = "#444", stroke = false) {
   ctx.closePath();
   ctx.fillStyle = fill;
   ctx.fill();
-  if (stroke) {
-    ctx.strokeStyle = "#050505";
-    ctx.lineWidth = 5;
-    ctx.stroke();
-  }
+  if (stroke) { ctx.strokeStyle = "#050505"; ctx.lineWidth = 5; ctx.stroke(); }
 }
 function updateViewSprite() {
   const sprite = $("viewSprite");
   sprite.className = "view-sprite hidden";
-  for (let depth = 1; depth <= 2; depth++) {
+  for (let depth = 1; depth <= 3; depth++) {
     const f = forwardCell(depth);
     const t = tileAt(f.x, f.y);
     if (t === "#") return;
     if (t === "E" && !state.enemyDefeated) {
       sprite.className = "view-sprite enemy";
-      sprite.style.width = depth === 1 ? "58%" : "38%";
-      sprite.style.opacity = depth === 2 ? ".78" : "1";
+      sprite.style.width = depth === 1 ? "58%" : depth === 2 ? "38%" : "24%";
+      sprite.style.opacity = depth === 3 ? ".58" : depth === 2 ? ".78" : "1";
       return;
     }
     if (t === "P" && !state.potionTaken) {
       sprite.className = "view-sprite potion";
-      sprite.style.width = depth === 1 ? "42%" : "28%";
+      sprite.style.width = depth === 1 ? "42%" : depth === 2 ? "28%" : "18%";
       sprite.style.opacity = "1";
       return;
     }
     if (t === "X") {
       sprite.className = "view-sprite exit";
-      sprite.style.width = "50%";
+      sprite.style.width = depth === 1 ? "50%" : "32%";
       sprite.style.opacity = "1";
       return;
     }
@@ -528,10 +497,7 @@ function drawMiniMap() {
       ctx.strokeStyle = "#111";
       ctx.lineWidth = 3;
       ctx.strokeRect(3 + x * cell, 3 + y * cell, cell, cell);
-      if (tile === "#") {
-        ctx.fillStyle = "#111";
-        ctx.fillRect(3 + x * cell + 3, 3 + y * cell + 3, cell - 6, cell - 6);
-      }
+      if (tile === "#") { ctx.fillStyle = "#111"; ctx.fillRect(3 + x * cell + 3, 3 + y * cell + 3, cell - 6, cell - 6); }
       if (tile === "P" && !state.potionTaken) drawDot(ctx, x, y, "#22c52f");
       if (tile === "E" && !state.enemyDefeated) drawDot(ctx, x, y, "#f04444");
       if (tile === "X") drawDot(ctx, x, y, "#2288ff");
