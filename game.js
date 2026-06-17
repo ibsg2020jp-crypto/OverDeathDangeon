@@ -33,8 +33,10 @@ const achievements = [
 ];
 
 let storyIndex = 0;
-let deathStepIndex = 0;
 let state = makeNewState();
+let deathReturning = false;
+let pendingDeathDamage = null;
+let deathReturnTimer = null;
 const $ = id => document.getElementById(id);
 
 function makeNewState() {
@@ -59,12 +61,31 @@ function makeNewState() {
   };
 }
 
+function normalizeState(input) {
+  const fresh = makeNewState();
+  const out = { ...fresh, ...(input || {}) };
+  const nums = ["x", "y", "dir", "level", "baseMaxHp", "baseAttack", "maxHp", "hp", "attack", "deaths", "loads"];
+  for (const key of nums) {
+    if (!Number.isFinite(Number(out[key]))) out[key] = fresh[key];
+    else out[key] = Number(out[key]);
+  }
+  out.dir = ((out.dir % 4) + 4) % 4;
+  out.deaths = Math.max(0, Math.floor(out.deaths));
+  out.loads = Math.max(0, Math.floor(out.loads));
+  out.level = Math.max(1, Math.floor(out.level));
+  out.maxHp = Math.max(1, Math.floor(out.maxHp));
+  out.attack = Math.max(1, Math.floor(out.attack));
+  out.hp = Math.max(0, Math.min(Math.floor(out.hp), out.maxHp));
+  if (!Array.isArray(out.unlocked)) out.unlocked = [];
+  return out;
+}
+
 function tileAt(x, y) {
   if (y < 0 || y >= baseMap.length || x < 0 || x >= baseMap[0].length) return "#";
   return baseMap[y][x];
 }
 function isSolid(x, y) { return tileAt(x, y) === "#"; }
-function isDeathOverlayOpen() { return !$('deathOverlay').classList.contains('hidden'); }
+function isDeathOverlayOpen() { return deathReturning; }
 function show(screenId) {
   ["titleScreen", "storyScreen", "gameScreen"].forEach(id => $(id).classList.toggle("hidden", id !== screenId));
 }
@@ -84,6 +105,7 @@ function showStoryLine() {
 function startStory() {
   storyIndex = 0;
   state = makeNewState();
+  hideDeathOverlay();
   show("storyScreen");
   showStoryLine();
 }
@@ -96,6 +118,8 @@ function nextStory() {
   showStoryLine();
 }
 function startGame(message, face = "neutral") {
+  state = normalizeState(state);
+  hideDeathOverlay();
   show("gameScreen");
   setMessage(message, face);
   render();
@@ -127,8 +151,6 @@ function forward() {
   if (tile === "E" && !state.enemyDefeated) {
     state.tutorialEnemySeen = true;
     fightEnemy();
-    render();
-    save(false);
     return;
   }
   state.x = nx;
@@ -181,13 +203,46 @@ function fightEnemy() {
   state.maxHp += 4;
   state.hp = Math.min(state.maxHp, state.hp + 4);
   setMessage("敵を倒しました。レベルがあがりました。\n攻撃力と最大HPも少し上がりました。", "smile");
+  render();
+  save(false);
 }
 function die(damage = 50) {
+  if (deathReturning) return;
+  pendingDeathDamage = damage;
   state.hp = 0;
   render();
+  showDeathOverlay(`${damage}のダメージを受けた。\n死んでしまった……`);
+  deathReturnTimer = setTimeout(completeDeathReturn, 900);
+}
+function showDeathOverlay(text) {
+  const overlay = $("deathOverlay");
+  const textEl = $("deathOverlayText");
+  const button = $("deathNextButton");
+  deathReturning = true;
+  if (!overlay || !textEl || !button) {
+    completeDeathReturn();
+    return;
+  }
+  textEl.textContent = text;
+  button.disabled = false;
+  button.textContent = "死に戻る";
+  button.onclick = completeDeathReturn;
+  overlay.classList.remove("hidden");
+}
+function hideDeathOverlay() {
+  if (deathReturnTimer) clearTimeout(deathReturnTimer);
+  deathReturnTimer = null;
+  pendingDeathDamage = null;
+  deathReturning = false;
+  const overlay = $("deathOverlay");
+  if (overlay) overlay.classList.add("hidden");
+}
+function completeDeathReturn() {
+  if (pendingDeathDamage === null && !deathReturning) return;
+  if (deathReturnTimer) clearTimeout(deathReturnTimer);
+  deathReturnTimer = null;
+  const firstTime = !state.seenFirstDeath;
   state.deaths += 1;
-
-  // 死に戻りは1回で突破できる強さにする。
   state.maxHp = state.baseMaxHp + 20 * state.deaths;
   state.attack = state.baseAttack + 10 * state.deaths;
   state.hp = state.maxHp;
@@ -197,34 +252,13 @@ function die(damage = 50) {
   state.potionTaken = false;
   state.enemyDefeated = false;
   state.tutorialDeathReturnSeen = true;
-
-  const firstTime = !state.seenFirstDeath;
   state.seenFirstDeath = true;
-  save(false);
+  hideDeathOverlay();
+  setMessage(firstTime
+    ? "死に戻りしたようです。\n攻撃力と体力が向上しましたが、進捗が最初からになりました。"
+    : "また最初に戻された。\n攻撃力と体力は、さらに上がっている。", firstTime ? "cry" : "angry");
   render();
-
-  showDeathReturnSequence([
-    `${damage}のダメージを受けた。\n死んでしまった……`,
-    "ここは、、、？",
-    "体力がもどっている。\n攻撃力と体力の上限値が上がっている、、、？\nこれは一体、、、",
-    "死に戻りすると能力があがりますが、進捗が初めからになります",
-  ], firstTime ? "cry" : "angry");
-}
-function showDeathReturnSequence(lines, face = "cry") {
-  deathStepIndex = 0;
-  setFace(face);
-  $('deathOverlay').classList.remove('hidden');
-  $('deathOverlayText').textContent = lines[deathStepIndex];
-  $('deathNextButton').onclick = () => {
-    deathStepIndex += 1;
-    if (deathStepIndex >= lines.length) {
-      $('deathOverlay').classList.add('hidden');
-      setMessage("死に戻り地点に戻された。\nもう一度、敵に挑もう。", face);
-      render();
-      return;
-    }
-    $('deathOverlayText').textContent = lines[deathStepIndex];
-  };
+  save(false);
 }
 function clearGame() {
   state.cleared = true;
@@ -254,7 +288,11 @@ function loadGame() {
     alert("まだセーブデータがない。");
     return false;
   }
-  state = { ...makeNewState(), ...JSON.parse(raw) };
+  try {
+    state = normalizeState(JSON.parse(raw));
+  } catch {
+    state = makeNewState();
+  }
   state.loads += 1;
   localStorage.setItem(SAVE_KEY, JSON.stringify(state));
   startGame("記憶をたどって再開した。\n読込回数が記録された。", "neutral");
@@ -264,11 +302,12 @@ function resetGame() {
   localStorage.removeItem(SAVE_KEY);
   state = makeNewState();
   storyIndex = 0;
-  $('deathOverlay').classList.add('hidden');
+  hideDeathOverlay();
   show("titleScreen");
 }
 
 function render() {
+  state = normalizeState(state);
   $("hpText").textContent = `${Math.max(0, state.hp)}/${state.maxHp}`;
   $("attackText").textContent = state.attack;
   $("levelText").textContent = state.level;
@@ -281,8 +320,7 @@ function render() {
 }
 function basis() {
   const f = DIRS[state.dir];
-  // 画面上の「左」を正しく取る。以前は左右が反転していた。
-  return { f, l: { dx: f.dy, dy: -f.dx } };
+  return { f, l: { dx: -f.dy, dy: f.dx } };
 }
 function viewCell(depth, side) {
   const b = basis();
@@ -295,7 +333,6 @@ function drawDungeonView() {
   const ctx = c.getContext("2d");
   ctx.clearRect(0, 0, c.width, c.height);
   drawBaseDungeon(ctx, c.width, c.height);
-
   const rects = [
     { x: -18, y: -8, w: 396, h: 276 },
     { x: 50, y: 32, w: 260, h: 198 },
@@ -303,27 +340,16 @@ function drawDungeonView() {
     { x: 128, y: 84, w: 104, h: 98 },
     { x: 154, y: 104, w: 52, h: 58 },
   ];
-
   drawFarFogWall(ctx, rects[4]);
-
-  // 遠くから描画し、近くの壁を最後に重ねる。
   for (let depth = 4; depth >= 1; depth--) {
     const center = viewCell(depth, 0);
     const near = rects[depth - 1];
     const far = rects[depth];
-
     drawSideWallIfNeeded(ctx, near, far, depth, -1);
     drawSideWallIfNeeded(ctx, near, far, depth, 1);
-    drawFrontSideBlockIfNeeded(ctx, far, depth, -1);
-    drawFrontSideBlockIfNeeded(ctx, far, depth, 1);
-
-    if (isSolid(center.x, center.y)) {
-      drawFrontWall(ctx, far, depth);
-    } else {
-      drawOpeningFrame(ctx, far, depth);
-    }
+    if (isSolid(center.x, center.y)) drawFrontWall(ctx, far, depth);
+    else drawOpeningFrame(ctx, far, depth);
   }
-
   drawVisibleObjects(ctx);
 }
 function drawBaseDungeon(ctx, w, h) {
@@ -354,19 +380,6 @@ function drawSideWallIfNeeded(ctx, near, far, depth, side) {
   drawPoly(ctx, pts, color, true);
   drawPerspectiveBricks(ctx, pts, depth);
 }
-function drawFrontSideBlockIfNeeded(ctx, rect, depth, side) {
-  const cell = viewCell(depth, side);
-  if (!isSolid(cell.x, cell.y)) return;
-  // 前方左右1マスの「壁の存在」をはっきり出すため、端面を小さく重ねる。
-  const width = Math.max(8, rect.w * .18);
-  const x = side < 0 ? rect.x - width : rect.x + rect.w;
-  const pts = side < 0
-    ? [[x, rect.y + 4], [rect.x, rect.y], [rect.x, rect.y + rect.h], [x, rect.y + rect.h - 4]]
-    : [[rect.x + rect.w, rect.y], [x + width, rect.y + 4], [x + width, rect.y + rect.h - 4], [rect.x + rect.w, rect.y + rect.h]];
-  const color = depth === 1 ? "#817454" : depth === 2 ? "#6c6047" : "#514837";
-  drawPoly(ctx, pts, color, true);
-  drawPerspectiveBricks(ctx, pts, depth);
-}
 function drawVisibleObjects(ctx) {
   const slots = [
     { depth: 1, rect: { x: 112, y: 82, w: 136, h: 144 }, scale: 1 },
@@ -388,6 +401,21 @@ function drawEnemyHint(ctx, rect) {
   ctx.ellipse(rect.x + rect.w / 2, rect.y + rect.h - 8, rect.w * .38, 10, 0, 0, Math.PI * 2);
   ctx.fill();
 }
+function roundedRectPath(ctx, x, y, w, h, r) {
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, w, h, r);
+    return;
+  }
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+}
 function drawPotionHint(ctx, rect, scale) {
   ctx.save();
   ctx.translate(rect.x + rect.w / 2, rect.y + rect.h * .66);
@@ -396,7 +424,7 @@ function drawPotionHint(ctx, rect, scale) {
   ctx.strokeStyle = "#050505";
   ctx.lineWidth = 5;
   ctx.beginPath();
-  ctx.roundRect(-18, -28, 36, 52, 8);
+  roundedRectPath(ctx, -18, -28, 36, 52, 8);
   ctx.fill();
   ctx.stroke();
   ctx.fillStyle = "#fff";
@@ -441,8 +469,7 @@ function drawFarFogWall(ctx, rect) {
   ctx.lineWidth = 4;
   ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
   ctx.fillStyle = "rgba(0,0,0,.22)";
-  const fog = [[160,112,17],[188,118,22],[174,138,19],[198,150,15],[154,150,14]];
-  fog.forEach(([x, y, r]) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); });
+  [[160,112,17],[188,118,22],[174,138,19],[198,150,15],[154,150,14]].forEach(([x, y, r]) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); });
 }
 function drawBrickTexture(ctx, x, y, w, h, scale = 1) {
   ctx.save();
@@ -453,14 +480,10 @@ function drawBrickTexture(ctx, x, y, w, h, scale = 1) {
   ctx.lineWidth = Math.max(1.5, 3 * scale);
   const rowH = 22 * scale;
   const brickW = 50 * scale;
-  for (let yy = y + rowH; yy < y + h; yy += rowH) {
-    ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + w, yy); ctx.stroke();
-  }
+  for (let yy = y + rowH; yy < y + h; yy += rowH) { ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + w, yy); ctx.stroke(); }
   for (let row = 0, yy = y; yy < y + h; row++, yy += rowH) {
     const offset = row % 2 ? brickW / 2 : 0;
-    for (let xx = x - offset; xx < x + w; xx += brickW) {
-      ctx.beginPath(); ctx.moveTo(xx, yy); ctx.lineTo(xx, yy + rowH); ctx.stroke();
-    }
+    for (let xx = x - offset; xx < x + w; xx += brickW) { ctx.beginPath(); ctx.moveTo(xx, yy); ctx.lineTo(xx, yy + rowH); ctx.stroke(); }
   }
   ctx.restore();
 }
