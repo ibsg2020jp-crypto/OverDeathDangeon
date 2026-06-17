@@ -6,12 +6,13 @@ const DIRS = [
   { name: "西", dx: -1, dy: 0 },
 ];
 
+// コの字チュートリアル。敵を避けられない一本道に近い形。
 const baseMap = [
   "#####",
   "#S..#",
-  "#.#E#",
-  "#P..#",
-  "##X##",
+  "###E#",
+  "#XP.#",
+  "#####",
 ];
 
 const story = [
@@ -40,16 +41,21 @@ function makeNewState() {
     x: 1,
     y: 1,
     dir: 1,
-    baseLevel: 34,
-    level: 34,
+    level: 1,
+    baseMaxHp: 34,
+    baseAttack: 5,
     maxHp: 34,
     hp: 34,
+    attack: 5,
     deaths: 0,
     loads: 0,
     cleared: false,
     potionTaken: false,
     enemyDefeated: false,
     seenFirstDeath: false,
+    tutorialEnemySeen: false,
+    tutorialPotionSeen: false,
+    tutorialDeathReturnSeen: false,
     unlocked: [],
   };
 }
@@ -84,7 +90,7 @@ function startStory() {
 function nextStory() {
   storyIndex += 1;
   if (storyIndex >= story.length) {
-    startGame("閉じ込められた。先に進まないと……。", "neutral");
+    startGame("チュートリアル：前進で進み、左右で向きを変えます。\n閉じ込められた。先に進まないと……。", "neutral");
     return;
   }
   showStoryLine();
@@ -113,11 +119,12 @@ function forward() {
   const ny = state.y + d.dy;
   const tile = tileAt(nx, ny);
   if (tile === "#") {
-    setMessage("岩壁だ。ここは進めない。", "neutral");
+    setMessage("岩壁だ。ここは進めない。\n壁の形を見て、通れる方向を探そう。", "neutral");
     render();
     return;
   }
   if (tile === "E" && !state.enemyDefeated) {
+    state.tutorialEnemySeen = true;
     fightEnemy();
     render();
     save(false);
@@ -126,9 +133,10 @@ function forward() {
   state.x = nx;
   state.y = ny;
   if (tile === "P" && !state.potionTaken) {
+    state.tutorialPotionSeen = true;
     state.potionTaken = true;
-    state.hp = Math.min(state.maxHp, state.hp + 16);
-    setMessage("回復薬を見つけた。\n少しだけ息が整った。", "smile");
+    state.hp = Math.min(state.maxHp, state.hp + 18);
+    setMessage("アイテムがあります。近づくと使用できます。\n回復薬を使い、HPが回復しました。", "smile");
   } else if (tile === "X") {
     clearGame();
   } else {
@@ -138,30 +146,38 @@ function forward() {
   save(false);
 }
 function fightEnemy() {
-  if (state.level < 38) {
+  const enemyHp = 12;
+  if (state.attack < enemyHp) {
+    setMessage("敵と遭遇しました。戦いましょう。\nしかし、今の攻撃力では押し負けてしまった……。", "angry");
     die();
     return;
   }
   state.hp = Math.max(1, state.hp - 8);
   state.enemyDefeated = true;
-  setMessage("狼のような怪物が飛びかかってきた。\n傷は負ったが、押し返せた。", "angry");
+  state.level += 1;
+  state.attack += 2;
+  state.maxHp += 4;
+  state.hp = Math.min(state.maxHp, state.hp + 4);
+  setMessage("敵を倒しました。レベルがあがりました。\n攻撃力と最大HPも少し上がりました。", "smile");
 }
 function die() {
   playDeathFade();
   state.deaths += 1;
-  state.level = state.baseLevel + Math.floor(state.baseLevel * 0.5 * state.deaths);
-  state.maxHp = state.level;
+  const boost = 1 + 0.5 * state.deaths;
+  state.maxHp = Math.floor(state.baseMaxHp * boost);
+  state.attack = Math.floor(state.baseAttack * boost);
   state.hp = state.maxHp;
   state.x = 1;
   state.y = 1;
   state.dir = 1;
   state.potionTaken = false;
   state.enemyDefeated = false;
+  state.tutorialDeathReturnSeen = true;
   if (!state.seenFirstDeath) {
     state.seenFirstDeath = true;
-    setMessage("……あれ？\n俺、さっき……死んだ、よな？\n場所が戻ってる。でも、記憶は残ってる。", "cry");
+    setMessage("死に戻りしたようです。\n攻撃力と体力が向上しましたが、進捗が最初からになりました。", "cry");
   } else {
-    setMessage("また戻された。\nでも、前より体が動く。", "angry");
+    setMessage("また最初に戻された。\n攻撃力と体力は、さらに上がっている。", "angry");
   }
   save(false);
 }
@@ -176,7 +192,7 @@ function clearGame() {
   state.cleared = true;
   const newly = unlockAchievements();
   const suffix = newly.length ? `\n\n実績解除：${newly.join("、")}` : "";
-  setMessage(`外へ続く風を見つけた。\nプロトタイプ踏破！${suffix}`, state.deaths === 0 ? "smile" : "neutral");
+  setMessage(`外へ続く風を見つけた。\nチュートリアル踏破！${suffix}`, state.deaths === 0 ? "smile" : "neutral");
   save(false);
 }
 function unlockAchievements() {
@@ -215,6 +231,7 @@ function resetGame() {
 
 function render() {
   $("hpText").textContent = `${Math.max(0, state.hp)}/${state.maxHp}`;
+  $("attackText").textContent = state.attack;
   $("levelText").textContent = state.level;
   $("deathText").textContent = state.deaths;
   $("loadText").textContent = state.loads;
@@ -226,24 +243,13 @@ function render() {
 
 function basis() {
   const f = DIRS[state.dir];
-  return {
-    f,
-    l: { dx: -f.dy, dy: f.dx },
-  };
+  return { f, l: { dx: -f.dy, dy: f.dx } };
 }
 function viewCell(depth, side) {
   const b = basis();
-  return {
-    x: state.x + b.f.dx * depth + b.l.dx * side,
-    y: state.y + b.f.dy * depth + b.l.dy * side,
-  };
+  return { x: state.x + b.f.dx * depth + b.l.dx * side, y: state.y + b.f.dy * depth + b.l.dy * side };
 }
-function forwardCell(depth) {
-  return viewCell(depth, 0);
-}
-function sideCell(depth, side) {
-  return viewCell(depth, side);
-}
+function forwardCell(depth) { return viewCell(depth, 0); }
 
 function drawDungeonView() {
   const c = $("viewCanvas");
@@ -251,18 +257,13 @@ function drawDungeonView() {
   const w = c.width;
   const h = c.height;
   const view = makeViewGrid();
-
   ctx.clearRect(0, 0, w, h);
   drawBaseDungeon(ctx, w, h);
-
-  // 描画は「自分の左右1マス + 前2マス」の3x3情報だけを見る。
-  // side: -1 = 左、0 = 正面、1 = 右 / depth: 0 = 現在列、1・2 = 前方。
   drawCurrentSidePanels(ctx, view);
   drawDepthSidePanels(ctx, view, 2);
   drawDepthSidePanels(ctx, view, 1);
   drawForwardSpace(ctx, view);
   drawVisibleObjects(ctx, view);
-  drawViewDebugGrid(ctx, view);
 }
 
 function makeViewGrid() {
@@ -280,17 +281,15 @@ function makeViewGrid() {
 
 function drawBaseDungeon(ctx, w, h) {
   const gradCeil = ctx.createLinearGradient(0, 0, 0, h / 2);
-  gradCeil.addColorStop(0, "#151a1c");
-  gradCeil.addColorStop(1, "#242927");
+  gradCeil.addColorStop(0, "#151817");
+  gradCeil.addColorStop(1, "#2b2c26");
   ctx.fillStyle = gradCeil;
   ctx.fillRect(0, 0, w, h / 2);
-
   const gradFloor = ctx.createLinearGradient(0, h / 2, 0, h);
-  gradFloor.addColorStop(0, "#373329");
-  gradFloor.addColorStop(1, "#171714");
+  gradFloor.addColorStop(0, "#383429");
+  gradFloor.addColorStop(1, "#151511");
   ctx.fillStyle = gradFloor;
   ctx.fillRect(0, h / 2, w, h / 2);
-
   ctx.strokeStyle = "rgba(0,0,0,.65)";
   ctx.lineWidth = 5;
   ctx.beginPath();
@@ -301,23 +300,21 @@ function drawBaseDungeon(ctx, w, h) {
 
 function drawCurrentSidePanels(ctx, view) {
   if (view[0][-1].tile === "#") {
-    drawPoly(ctx, [[0, 0], [72, 45], [72, 215], [0, 260]], "#5f5541", true);
+    drawPoly(ctx, [[0, 0], [72, 45], [72, 215], [0, 260]], "#6b6048", true);
     drawBrickTexture(ctx, 0, 0, 78, 260, 1.35);
   }
   if (view[0][1].tile === "#") {
-    drawPoly(ctx, [[360, 0], [288, 45], [288, 215], [360, 260]], "#5f5541", true);
+    drawPoly(ctx, [[360, 0], [288, 45], [288, 215], [360, 260]], "#6b6048", true);
     drawBrickTexture(ctx, 282, 0, 78, 260, 1.35);
   }
 }
-
 function drawDepthSidePanels(ctx, view, depth) {
   const near = depth === 1
-    ? { leftTop: [72, 45], leftBottom: [72, 215], rightTop: [288, 45], rightBottom: [288, 215], color: "#574e3c" }
-    : { leftTop: [118, 72], leftBottom: [118, 188], rightTop: [242, 72], rightBottom: [242, 188], color: "#453d30" };
+    ? { leftTop: [72, 45], leftBottom: [72, 215], rightTop: [288, 45], rightBottom: [288, 215], color: "#62583f" }
+    : { leftTop: [118, 72], leftBottom: [118, 188], rightTop: [242, 72], rightBottom: [242, 188], color: "#4f4634" };
   const far = depth === 1
     ? { leftTop: [118, 72], leftBottom: [118, 188], rightTop: [242, 72], rightBottom: [242, 188] }
     : { leftTop: [152, 94], leftBottom: [152, 166], rightTop: [208, 94], rightBottom: [208, 166] };
-
   if (view[depth][-1].tile === "#") {
     drawPoly(ctx, [near.leftTop, far.leftTop, far.leftBottom, near.leftBottom], near.color, true);
     drawPerspectiveBricks(ctx, [near.leftTop, far.leftTop, far.leftBottom, near.leftBottom]);
@@ -327,30 +324,36 @@ function drawDepthSidePanels(ctx, view, depth) {
     drawPerspectiveBricks(ctx, [near.rightTop, far.rightTop, far.rightBottom, near.rightBottom]);
   }
 }
-
 function drawForwardSpace(ctx, view) {
   if (view[1][0].tile === "#") {
     drawFrontWall(ctx, { x: 72, y: 45, w: 216, h: 170 }, 1);
     return;
   }
   drawOpeningFrame(ctx, { x: 72, y: 45, w: 216, h: 170 }, 1);
-
   if (view[2][0].tile === "#") {
     drawFrontWall(ctx, { x: 118, y: 72, w: 124, h: 116 }, 2);
     return;
   }
   drawOpeningFrame(ctx, { x: 118, y: 72, w: 124, h: 116 }, 2);
-  drawBackCorridor(ctx);
+  drawFarFogWall(ctx);
 }
-
-function drawBackCorridor(ctx) {
-  ctx.fillStyle = "#202523";
+function drawFarFogWall(ctx) {
+  const g = ctx.createRadialGradient(180, 130, 4, 180, 130, 74);
+  g.addColorStop(0, "rgba(35,39,36,.96)");
+  g.addColorStop(.62, "rgba(18,20,19,.96)");
+  g.addColorStop(1, "rgba(0,0,0,.98)");
+  ctx.fillStyle = g;
   ctx.fillRect(152, 94, 56, 72);
-  ctx.strokeStyle = "#0b0b0b";
-  ctx.lineWidth = 4;
+  ctx.strokeStyle = "#050505";
+  ctx.lineWidth = 5;
   ctx.strokeRect(152, 94, 56, 72);
+  ctx.fillStyle = "rgba(0,0,0,.25)";
+  for (let i = 0; i < 12; i++) {
+    ctx.beginPath();
+    ctx.arc(160 + Math.random() * 42, 100 + Math.random() * 60, 10 + Math.random() * 16, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
-
 function drawVisibleObjects(ctx, view) {
   const slots = [
     { depth: 1, rect: { x: 112, y: 82, w: 136, h: 144 }, scale: 1 },
@@ -358,21 +361,11 @@ function drawVisibleObjects(ctx, view) {
   ];
   for (const slot of slots) {
     const center = view[slot.depth][0];
-    if (center.tile === "E" && !state.enemyDefeated) {
-      drawEnemyHint(ctx, slot.rect, slot.scale);
-      continue;
-    }
-    if (center.tile === "P" && !state.potionTaken) {
-      drawPotionHint(ctx, slot.rect, slot.scale);
-      continue;
-    }
-    if (center.tile === "X") {
-      drawExitHint(ctx, slot.rect, slot.scale);
-      continue;
-    }
+    if (center.tile === "E" && !state.enemyDefeated) { drawEnemyHint(ctx, slot.rect); continue; }
+    if (center.tile === "P" && !state.potionTaken) { drawPotionHint(ctx, slot.rect, slot.scale); continue; }
+    if (center.tile === "X") { drawExitHint(ctx, slot.rect, slot.scale); continue; }
   }
 }
-
 function drawEnemyHint(ctx, rect) {
   ctx.fillStyle = "rgba(0,0,0,.35)";
   ctx.beginPath();
@@ -408,7 +401,6 @@ function drawExitHint(ctx, rect, scale) {
   ctx.fillText("出口", 0, 0);
   ctx.restore();
 }
-
 function drawOpeningFrame(ctx, rect, depth) {
   ctx.strokeStyle = depth === 1 ? "rgba(255,255,255,.22)" : "rgba(255,255,255,.13)";
   ctx.lineWidth = depth === 1 ? 4 : 3;
@@ -424,25 +416,23 @@ function drawOpeningFrame(ctx, rect, depth) {
   ctx.lineTo(rect.x + rect.w, rect.y + rect.h);
   ctx.stroke();
 }
-
 function drawFrontWall(ctx, rect, depth) {
-  ctx.fillStyle = depth === 1 ? "#6d6249" : "#514735";
+  ctx.fillStyle = depth === 1 ? "#766a4e" : "#5d523d";
   ctx.strokeStyle = "#050505";
   ctx.lineWidth = 6;
   ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
   ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
   drawBrickTexture(ctx, rect.x, rect.y, rect.w, rect.h, depth === 1 ? 1 : .74);
 }
-
 function drawBrickTexture(ctx, x, y, w, h, scale = 1) {
   ctx.save();
   ctx.beginPath();
   ctx.rect(x, y, w, h);
   ctx.clip();
-  ctx.strokeStyle = "rgba(0,0,0,.45)";
+  ctx.strokeStyle = "rgba(0,0,0,.50)";
   ctx.lineWidth = Math.max(2, 3 * scale);
-  const rowH = 24 * scale;
-  const brickW = 54 * scale;
+  const rowH = 22 * scale;
+  const brickW = 50 * scale;
   for (let yy = y + rowH; yy < y + h; yy += rowH) {
     ctx.beginPath();
     ctx.moveTo(x, yy);
@@ -460,10 +450,9 @@ function drawBrickTexture(ctx, x, y, w, h, scale = 1) {
   }
   ctx.restore();
 }
-
 function drawPerspectiveBricks(ctx, pts) {
   ctx.save();
-  ctx.strokeStyle = "rgba(0,0,0,.38)";
+  ctx.strokeStyle = "rgba(0,0,0,.42)";
   ctx.lineWidth = 2;
   for (let i = 1; i <= 4; i++) {
     const t = i / 5;
@@ -485,9 +474,7 @@ function drawPerspectiveBricks(ctx, pts) {
   }
   ctx.restore();
 }
-function lerpPoint(a, b, t) {
-  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-}
+function lerpPoint(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; }
 function drawPoly(ctx, pts, fill = "#444", stroke = false) {
   ctx.beginPath();
   ctx.moveTo(pts[0][0], pts[0][1]);
@@ -501,34 +488,6 @@ function drawPoly(ctx, pts, fill = "#444", stroke = false) {
     ctx.stroke();
   }
 }
-
-function drawViewDebugGrid(ctx, view) {
-  ctx.save();
-  ctx.font = "700 10px sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillStyle = "rgba(255,255,255,.78)";
-  ctx.strokeStyle = "rgba(0,0,0,.75)";
-  ctx.lineWidth = 3;
-  const labels = [
-    { side: -1, depth: 0, x: 34, y: 230 },
-    { side: 0, depth: 0, x: 180, y: 238 },
-    { side: 1, depth: 0, x: 326, y: 230 },
-    { side: -1, depth: 1, x: 94, y: 202 },
-    { side: 0, depth: 1, x: 180, y: 202 },
-    { side: 1, depth: 1, x: 266, y: 202 },
-    { side: -1, depth: 2, x: 136, y: 176 },
-    { side: 0, depth: 2, x: 180, y: 176 },
-    { side: 1, depth: 2, x: 224, y: 176 },
-  ];
-  for (const item of labels) {
-    const t = view[item.depth][item.side].tile;
-    const text = t === "#" ? "壁" : "空";
-    ctx.strokeText(text, item.x, item.y);
-    ctx.fillText(text, item.x, item.y);
-  }
-  ctx.restore();
-}
-
 function updateViewSprite() {
   const sprite = $("viewSprite");
   sprite.className = "view-sprite hidden";
