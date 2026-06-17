@@ -1,4 +1,7 @@
+"use strict";
+
 const SAVE_KEY = "overdeath-dungeon-prototype-v0";
+
 const DIRS = [
   { name: "北", dx: 0, dy: -1 },
   { name: "東", dx: 1, dy: 0 },
@@ -6,16 +9,22 @@ const DIRS = [
   { name: "西", dx: -1, dy: 0 },
 ];
 
-// コの字チュートリアル。敵を避けられない一本道に近い形。
-const baseMap = [
-  "#####",
-  "#S..#",
-  "###E#",
-  "#XP.#",
-  "#####",
-];
+const MapState = {
+  width: 5,
+  height: 5,
+  rows: [
+    "#####",
+    "#S..#",
+    "###E#",
+    "#XP.#",
+    "#####",
+  ],
+  start: { x: 1, y: 1, dir: 1 },
+  enemy: { hp: 12, damage: 50 },
+  deathBoost: { maxHp: 20, attack: 10 },
+};
 
-const story = [
+const Story = [
   { face: "neutral", text: "……ここが、噂の洞窟か。\n思ったより静かだな。" },
   { face: "neutral", text: "村の人たちは、戻ってきた者が少ないと言っていた。\nでも、入口付近は普通の洞窟に見える。" },
   { face: "angry", text: "……なんだ？\n入口の方で、崩れるような音がする……？" },
@@ -25,419 +34,789 @@ const story = [
   { face: "neutral", text: "先に進まないと……。\n生きて出るんだ。" },
 ];
 
-const achievements = [
-  { id: "clear", name: "初回踏破", check: s => s.cleared },
-  { id: "noDeath", name: "不死踏破", check: s => s.cleared && s.deaths === 0 },
-  { id: "theory", name: "理論値踏破", check: s => s.cleared && s.deaths === 0 && s.loads === 0 },
-  { id: "overDeath", name: "死還者", check: s => s.cleared && s.deaths > 0 },
+const AchievementRules = [
+  { id: "clear", name: "初回踏破", check: s => s.progress.cleared },
+  { id: "noDeath", name: "不死踏破", check: s => s.progress.cleared && s.records.deaths === 0 },
+  { id: "theory", name: "理論値踏破", check: s => s.progress.cleared && s.records.deaths === 0 && s.records.loads === 0 },
+  { id: "overDeath", name: "死還者", check: s => s.progress.cleared && s.records.deaths > 0 },
 ];
+
+const $ = id => document.getElementById(id);
 
 let storyIndex = 0;
 let deathStepIndex = 0;
-let deathReturning = false;
 let deathSequence = [];
-let state = makeNewState();
-const $ = id => document.getElementById(id);
+let deathMode = false;
+let state = createInitialState();
 
-function makeNewState() {
+function createInitialState() {
   return {
-    x: 1, y: 1, dir: 1,
-    level: 1,
-    baseMaxHp: 34,
-    baseAttack: 5,
-    maxHp: 34,
-    hp: 34,
-    attack: 5,
-    deaths: 0,
-    loads: 0,
-    cleared: false,
-    potionTaken: false,
-    enemyDefeated: false,
-    seenFirstDeath: false,
-    tutorialEnemySeen: false,
-    tutorialPotionSeen: false,
-    tutorialDeathReturnSeen: false,
-    unlocked: [],
+    player: { ...MapState.start },
+    stats: {
+      level: 1,
+      baseMaxHp: 34,
+      baseAttack: 5,
+      maxHp: 34,
+      hp: 34,
+      attack: 5,
+    },
+    records: {
+      deaths: 0,
+      loads: 0,
+    },
+    progress: {
+      enemyDefeated: false,
+      potionTaken: false,
+      cleared: false,
+    },
+    tutorial: {
+      enemySeen: false,
+      potionSeen: false,
+      deathReturnSeen: false,
+    },
+    achievements: [],
   };
 }
 
-function normalizeState(input) {
-  const fresh = makeNewState();
-  const out = { ...fresh, ...(input || {}) };
-  const nums = ["x", "y", "dir", "level", "baseMaxHp", "baseAttack", "maxHp", "hp", "attack", "deaths", "loads"];
-  for (const key of nums) {
-    if (!Number.isFinite(Number(out[key]))) out[key] = fresh[key];
-    else out[key] = Number(out[key]);
+function normalizeState(raw) {
+  const fresh = createInitialState();
+  const merged = {
+    ...fresh,
+    ...(raw || {}),
+    player: { ...fresh.player, ...((raw && raw.player) || {}) },
+    stats: { ...fresh.stats, ...((raw && raw.stats) || {}) },
+    records: { ...fresh.records, ...((raw && raw.records) || {}) },
+    progress: { ...fresh.progress, ...((raw && raw.progress) || {}) },
+    tutorial: { ...fresh.tutorial, ...((raw && raw.tutorial) || {}) },
+    achievements: Array.isArray(raw && raw.achievements) ? raw.achievements : [],
+  };
+
+  merged.player.x = clampInt(merged.player.x, 0, MapState.width - 1, fresh.player.x);
+  merged.player.y = clampInt(merged.player.y, 0, MapState.height - 1, fresh.player.y);
+  merged.player.dir = modulo(clampInt(merged.player.dir, 0, 3, fresh.player.dir), 4);
+
+  for (const key of ["level", "baseMaxHp", "baseAttack", "maxHp", "hp", "attack"]) {
+    merged.stats[key] = Number.isFinite(Number(merged.stats[key])) ? Number(merged.stats[key]) : fresh.stats[key];
   }
-  out.dir = ((out.dir % 4) + 4) % 4;
-  out.deaths = Math.max(0, Math.floor(out.deaths));
-  out.loads = Math.max(0, Math.floor(out.loads));
-  out.level = Math.max(1, Math.floor(out.level));
-  out.maxHp = Math.max(1, Math.floor(out.maxHp));
-  out.attack = Math.max(1, Math.floor(out.attack));
-  out.hp = Math.max(0, Math.min(Math.floor(out.hp), out.maxHp));
-  if (!Array.isArray(out.unlocked)) out.unlocked = [];
-  return out;
+  merged.stats.level = Math.max(1, Math.floor(merged.stats.level));
+  merged.stats.baseMaxHp = Math.max(1, Math.floor(merged.stats.baseMaxHp));
+  merged.stats.baseAttack = Math.max(1, Math.floor(merged.stats.baseAttack));
+  merged.stats.maxHp = Math.max(1, Math.floor(merged.stats.maxHp));
+  merged.stats.attack = Math.max(1, Math.floor(merged.stats.attack));
+  merged.stats.hp = Math.max(0, Math.min(Math.floor(merged.stats.hp), merged.stats.maxHp));
+
+  merged.records.deaths = Math.max(0, Math.floor(Number(merged.records.deaths) || 0));
+  merged.records.loads = Math.max(0, Math.floor(Number(merged.records.loads) || 0));
+  return merged;
+}
+
+function clampInt(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
+function modulo(value, size) {
+  return ((value % size) + size) % size;
 }
 
 function tileAt(x, y) {
-  if (y < 0 || y >= baseMap.length || x < 0 || x >= baseMap[0].length) return "#";
-  return baseMap[y][x];
+  if (y < 0 || y >= MapState.height || x < 0 || x >= MapState.width) return "#";
+  return MapState.rows[y][x];
 }
-function isSolid(x, y) { return tileAt(x, y) === "#"; }
-function isDeathOverlayOpen() { return deathReturning; }
-function show(screenId) {
-  ["titleScreen", "storyScreen", "gameScreen"].forEach(id => $(id).classList.toggle("hidden", id !== screenId));
+
+function isWall(x, y) {
+  return tileAt(x, y) === "#";
 }
-function setFace(face) {
-  const targets = [$("storyVisual"), $("heroPortrait")];
-  targets.forEach(el => {
-    if (!el) return;
-    el.className = el.className.replace(/\b(neutral|smile|angry|cry|collapse)\b/g, "").trim();
-    el.classList.add("hero", face || "neutral");
-  });
+
+function frontVector(dir = state.player.dir) {
+  return DIRS[dir];
 }
-function showStoryLine() {
-  const line = story[storyIndex];
-  setFace(line.face);
-  $("storyText").textContent = line.text;
+
+function rightVector(dir = state.player.dir) {
+  const front = frontVector(dir);
+  return { dx: -front.dy, dy: front.dx };
 }
-function startStory() {
-  storyIndex = 0;
-  state = makeNewState();
-  hideDeathOverlay();
-  show("storyScreen");
-  showStoryLine();
+
+function viewCell(depth, side = 0) {
+  const front = frontVector();
+  const right = rightVector();
+  return {
+    x: state.player.x + front.dx * depth + right.dx * side,
+    y: state.player.y + front.dy * depth + right.dy * side,
+  };
 }
-function nextStory() {
-  storyIndex += 1;
-  if (storyIndex >= story.length) {
-    startGame("チュートリアル：前進で進み、左右で向きを変えます。\n閉じ込められた。先に進まないと……。", "neutral");
-    return;
+
+function cellIsVisibleBefore(depth) {
+  for (let d = 1; d <= depth; d += 1) {
+    const cell = viewCell(d, 0);
+    if (isWall(cell.x, cell.y)) return false;
   }
-  showStoryLine();
+  return true;
 }
-function startGame(message, face = "neutral") {
-  state = normalizeState(state);
-  hideDeathOverlay();
-  show("gameScreen");
-  setMessage(message, face);
-  render();
-  save(false);
+
+function isBusy() {
+  return deathMode || state.progress.cleared;
 }
+
+function setScreen(screenId) {
+  for (const id of ["titleScreen", "storyScreen", "gameScreen"]) {
+    $(id).classList.toggle("hidden", id !== screenId);
+  }
+}
+
+function setFace(face = "neutral") {
+  for (const id of ["storyVisual", "heroPortrait"]) {
+    const el = $(id);
+    if (!el) continue;
+    el.className = el.className.replace(/\b(neutral|smile|angry|cry|collapse)\b/g, "").trim();
+    el.classList.add("hero", face);
+  }
+}
+
 function setMessage(message, face = "neutral") {
   $("messageText").textContent = message;
   setFace(face);
 }
 
-function turn(delta) {
-  if (state.cleared || isDeathOverlayOpen()) return;
-  state.dir = (state.dir + delta + 4) % 4;
-  render();
-  if (maybeShowLookTutorial()) return;
-  setMessage(`${DIRS[state.dir].name}を向いた。`, "neutral");
+function startStory() {
+  storyIndex = 0;
+  state = createInitialState();
+  hideDeathOverlay();
+  setScreen("storyScreen");
+  renderStoryLine();
 }
-function forward() {
-  if (state.cleared || isDeathOverlayOpen()) return;
-  const d = DIRS[state.dir];
-  const nx = state.x + d.dx;
-  const ny = state.y + d.dy;
-  const tile = tileAt(nx, ny);
-  if (tile === "#") {
-    setMessage("岩壁だ。ここは進めない。\n壁の形を見て、通れる方向を探そう。", "neutral");
+
+function renderStoryLine() {
+  const line = Story[storyIndex];
+  setFace(line.face);
+  $("storyText").textContent = line.text;
+}
+
+function nextStory() {
+  storyIndex += 1;
+  if (storyIndex >= Story.length) {
+    startGame("チュートリアル：前進で進み、左右で向きを変えます。\n閉じ込められた。先に進まないと……。", "neutral");
+    return;
+  }
+  renderStoryLine();
+}
+
+function startGame(message, face = "neutral") {
+  state = normalizeState(state);
+  hideDeathOverlay();
+  setScreen("gameScreen");
+  setMessage(message, face);
+  render();
+  saveGame(false);
+}
+
+const movement = {
+  turn(delta) {
+    if (isBusy()) return;
+    state.player.dir = modulo(state.player.dir + delta, 4);
     render();
-    return;
-  }
-  if (tile === "E" && !state.enemyDefeated) {
-    state.tutorialEnemySeen = true;
-    fightEnemy();
-    return;
-  }
-  state.x = nx;
-  state.y = ny;
-  if (tile === "P" && !state.potionTaken) {
-    state.potionTaken = true;
-    state.hp = Math.min(state.maxHp, state.hp + 18);
+    if (showLookTutorial()) return;
+    setMessage(`${DIRS[state.player.dir].name}を向いた。`, "neutral");
+  },
+
+  forward() {
+    if (isBusy()) return;
+
+    const front = frontVector();
+    const nx = state.player.x + front.dx;
+    const ny = state.player.y + front.dy;
+    const tile = tileAt(nx, ny);
+
+    if (tile === "#") {
+      setMessage("岩壁だ。ここは進めない。\n壁の形を見て、通れる方向を探そう。", "neutral");
+      render();
+      return;
+    }
+
+    if (tile === "E" && !state.progress.enemyDefeated) {
+      battle.fight({ x: nx, y: ny });
+      return;
+    }
+
+    moveTo(nx, ny);
+  },
+};
+
+function moveTo(x, y) {
+  const tile = tileAt(x, y);
+  state.player.x = x;
+  state.player.y = y;
+
+  if (tile === "P" && !state.progress.potionTaken) {
+    state.progress.potionTaken = true;
+    state.stats.hp = state.stats.maxHp;
     setMessage("回復薬です。体力が回復しました。", "smile");
   } else if (tile === "X") {
     clearGame();
+    render();
+    saveGame(false);
+    return;
   } else {
     render();
-    if (!maybeShowLookTutorial()) setMessage("湿った通路を進む。", "neutral");
-    save(false);
+    if (!showLookTutorial()) {
+      setMessage("湿った通路を進む。", "neutral");
+    }
+    saveGame(false);
     return;
   }
+
   render();
-  save(false);
+  saveGame(false);
 }
-function maybeShowLookTutorial() {
-  const front1 = forwardCell(1);
-  const front2 = forwardCell(2);
-  const t1 = tileAt(front1.x, front1.y);
-  const t2 = tileAt(front2.x, front2.y);
-  if (!state.enemyDefeated && (t1 === "E" || t2 === "E") && !state.tutorialEnemySeen) {
-    state.tutorialEnemySeen = true;
+
+const battle = {
+  fight(target) {
     setMessage("敵と遭遇しました。戦いましょう。", "angry");
-    save(false);
-    return true;
-  }
-  if (!state.potionTaken && (t1 === "P" || t2 === "P") && !state.tutorialPotionSeen) {
-    state.tutorialPotionSeen = true;
-    setMessage("アイテムがあります。近づいて使用しましょう。", "smile");
-    save(false);
-    return true;
-  }
-  return false;
-}
-function fightEnemy() {
-  const enemyHp = 12;
-  if (state.attack < enemyHp) {
-    setMessage("敵と遭遇しました。戦いましょう。\nしかし、今の攻撃力では押し負けてしまった……。", "angry");
-    beginDeathReturn(50);
-    return;
-  }
-  state.hp = Math.max(1, state.hp - 8);
-  state.enemyDefeated = true;
-  state.level += 1;
-  state.attack += 2;
-  state.maxHp += 4;
-  state.hp = Math.min(state.maxHp, state.hp + 4);
-  setMessage("敵を倒しました。レベルがあがりました。\n攻撃力と最大HPも少し上がりました。", "smile");
-  render();
-  save(false);
-}
 
-function beginDeathReturn(damage = 50) {
-  if (deathReturning) return;
+    if (state.stats.attack < MapState.enemy.hp) {
+      setMessage("敵と遭遇しました。戦いましょう。\nしかし、今の攻撃力では押し負けてしまった……。", "angry");
+      beginDeathReturn(MapState.enemy.damage);
+      return;
+    }
 
-  state.hp = 0;
-  render();
+    state.progress.enemyDefeated = true;
+    state.stats.hp = Math.max(1, state.stats.hp - 8);
+    state.stats.level += 1;
+    state.stats.attack += 2;
+    state.stats.maxHp += 4;
+    state.stats.hp = Math.min(state.stats.maxHp, state.stats.hp + 4);
+    state.player.x = target.x;
+    state.player.y = target.y;
 
-  state.deaths += 1;
-  state.maxHp = state.baseMaxHp + 20 * state.deaths;
-  state.attack = state.baseAttack + 10 * state.deaths;
-  state.hp = state.maxHp;
-  state.x = 1;
-  state.y = 1;
-  state.dir = 1;
-  state.potionTaken = false;
-  state.enemyDefeated = false;
-  state.tutorialDeathReturnSeen = true;
-  state.seenFirstDeath = true;
-  save(false);
+    setMessage("敵を倒しました。レベルがあがりました。\n攻撃力と最大HPも少し上がりました。", "smile");
+    render();
+    saveGame(false);
+  },
+};
 
+function beginDeathReturn(damage) {
+  if (deathMode) return;
+
+  state.stats.hp = 0;
+  deathMode = true;
+  deathStepIndex = 0;
   deathSequence = [
     `${damage}のダメージを受けた。\n死んでしまった……`,
     "ここは、、、？",
     "体力がもどっている。\n攻撃力と体力の上限値が上がっている、、、？\nこれは一体、、、",
     "死に戻りすると能力があがりますが、進捗が初めからになります",
   ];
-  deathStepIndex = 0;
-  deathReturning = true;
+
+  setControlsEnabled(false);
   setFace("cry");
+  render();
   showDeathStep();
 }
-function ensureDeathOverlay() {
-  let overlay = $("deathOverlay");
-  if (overlay) return overlay;
-  overlay = document.createElement("section");
-  overlay.id = "deathOverlay";
-  overlay.className = "death-overlay";
-  overlay.innerHTML = `<div class="death-box"><p id="deathOverlayText"></p><button id="deathNextButton" class="primary-button">タップして進む</button></div>`;
-  document.body.appendChild(overlay);
-  return overlay;
-}
+
 function showDeathStep() {
-  const overlay = ensureDeathOverlay();
-  const textEl = $("deathOverlayText");
-  const button = $("deathNextButton");
-  if (!overlay || !textEl || !button) {
-    finishDeathReturn();
-    return;
-  }
-  textEl.textContent = deathSequence[deathStepIndex] || "死に戻りした。";
-  button.textContent = deathStepIndex >= deathSequence.length - 1 ? "探索に戻る" : "タップして進む";
-  button.onclick = advanceDeathStep;
-  overlay.classList.remove("hidden");
+  $("deathOverlayText").textContent = deathSequence[deathStepIndex] || "死に戻りした。";
+  $("deathNextButton").textContent = deathStepIndex >= deathSequence.length - 1 ? "探索に戻る" : "タップして進む";
+  $("deathOverlay").classList.remove("hidden");
 }
+
 function advanceDeathStep() {
-  if (!deathReturning) return;
+  if (!deathMode) return;
+
   deathStepIndex += 1;
   if (deathStepIndex >= deathSequence.length) {
-    finishDeathReturn();
+    applyDeathReturn();
     return;
   }
+
   showDeathStep();
 }
-function finishDeathReturn() {
+
+function applyDeathReturn() {
+  state.records.deaths += 1;
+  state.stats.maxHp = state.stats.baseMaxHp + MapState.deathBoost.maxHp * state.records.deaths;
+  state.stats.attack = state.stats.baseAttack + MapState.deathBoost.attack * state.records.deaths;
+  state.stats.hp = state.stats.maxHp;
+  state.player = { ...MapState.start };
+  state.progress.enemyDefeated = false;
+  state.progress.potionTaken = false;
+  state.tutorial.deathReturnSeen = true;
+  state.tutorial.enemySeen = false;
+  state.tutorial.potionSeen = false;
+
   hideDeathOverlay();
   setMessage("死に戻り地点に戻された。\nもう一度、敵に挑もう。", "cry");
   render();
-  save(false);
+  saveGame(false);
 }
+
 function hideDeathOverlay() {
-  deathReturning = false;
-  deathSequence = [];
+  deathMode = false;
   deathStepIndex = 0;
-  const overlay = $("deathOverlay");
-  if (overlay) overlay.classList.add("hidden");
+  deathSequence = [];
+  $("deathOverlay").classList.add("hidden");
+  setControlsEnabled(true);
+}
+
+function setControlsEnabled(enabled) {
+  const ids = [
+    "turnLeftButton",
+    "forwardButton",
+    "turnRightButton",
+    "manualSaveButton",
+    "manualLoadButton",
+    "resetButton",
+  ];
+  for (const id of ids) {
+    const el = $(id);
+    if (el) el.disabled = !enabled;
+  }
+}
+
+function showLookTutorial() {
+  const front1 = viewCell(1, 0);
+  const front2 = viewCell(2, 0);
+  const t1 = tileAt(front1.x, front1.y);
+  const t2 = tileAt(front2.x, front2.y);
+
+  if (!state.progress.enemyDefeated && !state.tutorial.enemySeen && (t1 === "E" || t2 === "E")) {
+    state.tutorial.enemySeen = true;
+    setMessage("敵と遭遇しました。戦いましょう。", "angry");
+    saveGame(false);
+    return true;
+  }
+
+  if (!state.progress.potionTaken && !state.tutorial.potionSeen && (t1 === "P" || t2 === "P")) {
+    state.tutorial.potionSeen = true;
+    setMessage("アイテムがあります。近づいて使用しましょう。", "smile");
+    saveGame(false);
+    return true;
+  }
+
+  return false;
 }
 
 function clearGame() {
-  state.cleared = true;
-  const newly = unlockAchievements();
-  const suffix = newly.length ? `\n\n実績解除：${newly.join("、")}` : "";
-  setMessage(`外へ続く風を見つけた。\nチュートリアル踏破！${suffix}`, state.deaths === 0 ? "smile" : "neutral");
-  save(false);
+  state.progress.cleared = true;
+  const newlyUnlocked = unlockAchievements();
+  const suffix = newlyUnlocked.length ? `\n\n実績解除：${newlyUnlocked.join("、")}` : "";
+  setMessage(`外へ続く風を見つけた。\nチュートリアル踏破！${suffix}`, state.records.deaths === 0 ? "smile" : "neutral");
 }
+
 function unlockAchievements() {
   const newly = [];
-  for (const a of achievements) {
-    if (!state.unlocked.includes(a.id) && a.check(state)) {
-      state.unlocked.push(a.id);
-      newly.push(a.name);
+  for (const rule of AchievementRules) {
+    if (!state.achievements.includes(rule.id) && rule.check(state)) {
+      state.achievements.push(rule.id);
+      newly.push(rule.name);
     }
   }
   return newly;
 }
-function save(showMessage = true) {
+
+function saveGame(showMessage = true) {
   localStorage.setItem(SAVE_KEY, JSON.stringify(state));
-  if (showMessage) setMessage("現在の状態を保存した。", "smile");
+  if (showMessage) setMessage("保存しました。", "neutral");
 }
-function loadGame() {
-  const raw = localStorage.getItem(SAVE_KEY);
-  if (!raw) {
-    show("titleScreen");
-    alert("まだセーブデータがない。");
+
+function loadGame(fromTitle = false) {
+  const saved = localStorage.getItem(SAVE_KEY);
+  if (!saved) {
+    if (fromTitle) {
+      setScreen("titleScreen");
+      return false;
+    }
+    setMessage("セーブデータがありません。", "neutral");
     return false;
   }
-  try { state = normalizeState(JSON.parse(raw)); }
-  catch { state = makeNewState(); }
-  state.loads += 1;
-  localStorage.setItem(SAVE_KEY, JSON.stringify(state));
-  startGame("記憶をたどって再開した。\n読込回数が記録された。", "neutral");
-  return true;
+
+  try {
+    state = normalizeState(JSON.parse(saved));
+    state.records.loads += 1;
+    hideDeathOverlay();
+    setScreen("gameScreen");
+    setMessage("セーブデータを読み込みました。", "neutral");
+    render();
+    saveGame(false);
+    return true;
+  } catch (error) {
+    console.error(error);
+    localStorage.removeItem(SAVE_KEY);
+    if (fromTitle) {
+      setScreen("titleScreen");
+    } else {
+      setMessage("セーブデータが壊れていたので削除しました。", "cry");
+    }
+    return false;
+  }
 }
+
 function resetGame() {
-  localStorage.removeItem(SAVE_KEY);
-  state = makeNewState();
-  storyIndex = 0;
+  state = createInitialState();
   hideDeathOverlay();
-  show("titleScreen");
+  localStorage.removeItem(SAVE_KEY);
+  startStory();
 }
 
 function render() {
-  state = normalizeState(state);
-  $("hpText").textContent = `${Math.max(0, state.hp)}/${state.maxHp}`;
-  $("attackText").textContent = state.attack;
-  $("levelText").textContent = state.level;
-  $("deathText").textContent = state.deaths;
-  $("loadText").textContent = state.loads;
-  $("hpBar").style.width = `${Math.max(0, (state.hp / state.maxHp) * 100)}%`;
-  drawDungeonView();
-  drawMiniMap();
-  updateViewSprite();
+  renderHud();
+  renderMiniMap();
+  renderDungeon();
 }
-function basis() {
-  const f = DIRS[state.dir];
-  // 画面上の「左」。東向きなら北、南向きなら東を指す。
-  return { f, l: { dx: f.dy, dy: -f.dx } };
-}
-function viewCell(depth, side) {
-  const b = basis();
-  return { x: state.x + b.f.dx * depth + b.l.dx * side, y: state.y + b.f.dy * depth + b.l.dy * side };
-}
-function forwardCell(depth) { return viewCell(depth, 0); }
 
-function drawDungeonView() {
-  const c = $("viewCanvas");
-  const ctx = c.getContext("2d");
-  ctx.clearRect(0, 0, c.width, c.height);
-  drawBaseDungeon(ctx, c.width, c.height);
-  const rects = [
-    { x: -18, y: -8, w: 396, h: 276 },
-    { x: 50, y: 32, w: 260, h: 198 },
-    { x: 94, y: 60, w: 172, h: 146 },
-    { x: 128, y: 84, w: 104, h: 98 },
-    { x: 154, y: 104, w: 52, h: 58 },
-  ];
-  drawFarFogWall(ctx, rects[4]);
-  for (let depth = 4; depth >= 1; depth--) {
-    const center = viewCell(depth, 0);
-    const near = rects[depth - 1];
-    const far = rects[depth];
-    drawSideWallIfNeeded(ctx, near, far, depth, -1);
-    drawSideWallIfNeeded(ctx, near, far, depth, 1);
-    drawFrontSideBlockIfNeeded(ctx, far, depth, -1);
-    drawFrontSideBlockIfNeeded(ctx, far, depth, 1);
-    if (isSolid(center.x, center.y)) drawFrontWall(ctx, far, depth);
-    else drawOpeningFrame(ctx, far, depth);
-  }
-  drawVisibleObjects(ctx);
+function renderHud() {
+  const { stats, records } = state;
+  $("hpText").textContent = `${stats.hp}/${stats.maxHp}`;
+  $("attackText").textContent = stats.attack;
+  $("levelText").textContent = stats.level;
+  $("deathText").textContent = records.deaths;
+  $("loadText").textContent = records.loads;
+
+  const hpRatio = stats.maxHp > 0 ? (stats.hp / stats.maxHp) * 100 : 0;
+  $("hpBar").style.width = `${Math.max(0, Math.min(100, hpRatio))}%`;
 }
-function drawBaseDungeon(ctx, w, h) {
-  const gradCeil = ctx.createLinearGradient(0, 0, 0, h / 2);
-  gradCeil.addColorStop(0, "#151817");
-  gradCeil.addColorStop(1, "#2b2c26");
-  ctx.fillStyle = gradCeil;
-  ctx.fillRect(0, 0, w, h / 2);
-  const gradFloor = ctx.createLinearGradient(0, h / 2, 0, h);
-  gradFloor.addColorStop(0, "#383429");
-  gradFloor.addColorStop(1, "#151511");
-  ctx.fillStyle = gradFloor;
-  ctx.fillRect(0, h / 2, w, h / 2);
-  ctx.strokeStyle = "rgba(0,0,0,.65)";
-  ctx.lineWidth = 5;
+
+function renderMiniMap() {
+  const canvas = $("miniMap");
+  const ctx = canvas.getContext("2d");
+  const cell = 18;
+  const offsetX = 3;
+  const offsetY = 3;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#fffdf5";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  for (let y = 0; y < MapState.height; y += 1) {
+    for (let x = 0; x < MapState.width; x += 1) {
+      const tile = tileAt(x, y);
+      const px = offsetX + x * cell;
+      const py = offsetY + y * cell;
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#111";
+      ctx.fillStyle = tile === "#" ? "#111" : "#fff";
+      ctx.fillRect(px, py, cell, cell);
+      ctx.strokeRect(px, py, cell, cell);
+
+      if (tile === "E" && !state.progress.enemyDefeated) drawMiniDot(ctx, px, py, cell, "#8c2f2f");
+      if (tile === "P" && !state.progress.potionTaken) drawMiniDot(ctx, px, py, cell, "#22c52f");
+      if (tile === "X") drawMiniDot(ctx, px, py, cell, "#4f68d7");
+    }
+  }
+
+  const px = offsetX + state.player.x * cell + cell / 2;
+  const py = offsetY + state.player.y * cell + cell / 2;
+  const dir = frontVector();
+  ctx.fillStyle = "#f04444";
   ctx.beginPath();
-  ctx.moveTo(0, h / 2);
-  ctx.lineTo(w, h / 2);
+  ctx.arc(px, py, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "#f04444";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(px, py);
+  ctx.lineTo(px + dir.dx * 9, py + dir.dy * 9);
   ctx.stroke();
 }
-function drawSideWallIfNeeded(ctx, near, far, depth, side) {
-  const cell = viewCell(depth - 1, side);
-  if (!isSolid(cell.x, cell.y)) return;
-  const pts = side < 0
-    ? [[near.x, near.y], [far.x, far.y], [far.x, far.y + far.h], [near.x, near.y + near.h]]
-    : [[near.x + near.w, near.y], [far.x + far.w, far.y], [far.x + far.w, far.y + far.h], [near.x + near.w, near.y + near.h]];
-  const color = depth === 1 ? "#75694d" : depth === 2 ? "#685d45" : depth === 3 ? "#554c39" : "#40382a";
-  drawPoly(ctx, pts, color, true);
-  drawPerspectiveBricks(ctx, pts, depth);
-}
-function drawFrontSideBlockIfNeeded(ctx, rect, depth, side) {
-  const cell = viewCell(depth, side);
-  if (!isSolid(cell.x, cell.y)) return;
-  const width = Math.max(8, rect.w * .18);
-  const x = side < 0 ? rect.x - width : rect.x + rect.w;
-  const pts = side < 0
-    ? [[x, rect.y + 4], [rect.x, rect.y], [rect.x, rect.y + rect.h], [x, rect.y + rect.h - 4]]
-    : [[rect.x + rect.w, rect.y], [x + width, rect.y + 4], [x + width, rect.y + rect.h - 4], [rect.x + rect.w, rect.y + rect.h]];
-  const color = depth === 1 ? "#817454" : depth === 2 ? "#6c6047" : "#514837";
-  drawPoly(ctx, pts, color, true);
-  drawPerspectiveBricks(ctx, pts, depth);
-}
-function drawVisibleObjects(ctx) {
-  const slots = [
-    { depth: 1, rect: { x: 112, y: 82, w: 136, h: 144 }, scale: 1 },
-    { depth: 2, rect: { x: 146, y: 100, w: 68, h: 82 }, scale: .62 },
-    { depth: 3, rect: { x: 164, y: 114, w: 34, h: 44 }, scale: .38 },
-  ];
-  for (const slot of slots) {
-    const center = forwardCell(slot.depth);
-    const t = tileAt(center.x, center.y);
-    if (t === "#") return;
-    if (t === "E" && !state.enemyDefeated) { drawEnemyHint(ctx, slot.rect); return; }
-    if (t === "P" && !state.potionTaken) { drawPotionHint(ctx, slot.rect, slot.scale); return; }
-    if (t === "X") { drawExitHint(ctx, slot.rect, slot.scale); return; }
-  }
-}
-function drawEnemyHint(ctx, rect) {
-  ctx.fillStyle = "rgba(0,0,0,.35)";
+
+function drawMiniDot(ctx, x, y, cell, color) {
+  ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.ellipse(rect.x + rect.w / 2, rect.y + rect.h - 8, rect.w * .38, 10, 0, 0, Math.PI * 2);
+  ctx.arc(x + cell / 2, y + cell / 2, 4, 0, Math.PI * 2);
   ctx.fill();
 }
-function roundedRectPath(ctx, x, y, w, h, r) {
-  if (typeof ctx.roundRect === "function") { ctx.roundRect(x, y, w, h, r); return; }
+
+function renderDungeon() {
+  const canvas = $("viewCanvas");
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+
+  ctx.clearRect(0, 0, w, h);
+  drawBackground(ctx, w, h);
+
+  const planes = [
+    { x: 0, y: 0, w, h },
+    { x: 48, y: 34, w: 264, h: 192 },
+    { x: 104, y: 70, w: 152, h: 118 },
+    { x: 140, y: 96, w: 80, h: 68 },
+    { x: 164, y: 116, w: 32, h: 30 },
+  ];
+
+  drawDepthFog(ctx, planes[4]);
+
+  let frontBlockedDepth = null;
+  for (let d = 1; d <= 4; d += 1) {
+    const c = viewCell(d, 0);
+    if (isWall(c.x, c.y)) {
+      frontBlockedDepth = d;
+      break;
+    }
+  }
+
+  for (let segment = 3; segment >= 0; segment -= 1) {
+    if (!cellIsVisibleBefore(segment)) continue;
+
+    const left = viewCell(segment, -1);
+    const right = viewCell(segment, 1);
+
+    if (isWall(left.x, left.y)) {
+      drawSideWall(ctx, planes[segment], planes[segment + 1], "left", segment);
+    } else {
+      drawSideOpening(ctx, planes[segment], planes[segment + 1], "left");
+    }
+
+    if (isWall(right.x, right.y)) {
+      drawSideWall(ctx, planes[segment], planes[segment + 1], "right", segment);
+    } else {
+      drawSideOpening(ctx, planes[segment], planes[segment + 1], "right");
+    }
+  }
+
+  drawCeilingAndFloorLines(ctx, planes);
+
+  if (frontBlockedDepth !== null) {
+    drawFrontWall(ctx, planes[frontBlockedDepth], frontBlockedDepth);
+  }
+
+  drawViewSprite(frontBlockedDepth);
+}
+
+function drawBackground(ctx, w, h) {
+  ctx.fillStyle = "#15120d";
+  ctx.fillRect(0, 0, w, h);
+
+  const grd = ctx.createLinearGradient(0, 0, 0, h);
+  grd.addColorStop(0, "#2a2116");
+  grd.addColorStop(.45, "#19150f");
+  grd.addColorStop(1, "#0d0b09");
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.strokeStyle = "rgba(255,255,255,.08)";
+  ctx.lineWidth = 1;
+  for (let y = 26; y < h; y += 30) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + Math.sin(y) * 3);
+    ctx.lineTo(w, y + Math.cos(y) * 3);
+    ctx.stroke();
+  }
+}
+
+function drawDepthFog(ctx, plane) {
+  ctx.fillStyle = "rgba(0,0,0,.55)";
+  roundRect(ctx, plane.x, plane.y, plane.w, plane.h, 4, true, false);
+}
+
+function drawSideWall(ctx, near, far, side, segment) {
+  const leftSide = side === "left";
+  const points = leftSide
+    ? [
+        [near.x, near.y],
+        [far.x, far.y],
+        [far.x, far.y + far.h],
+        [near.x, near.y + near.h],
+      ]
+    : [
+        [near.x + near.w, near.y],
+        [far.x + far.w, far.y],
+        [far.x + far.w, far.y + far.h],
+        [near.x + near.w, near.y + near.h],
+      ];
+
+  ctx.save();
+  pathPoly(ctx, points);
+  const shade = 118 - segment * 18;
+  ctx.fillStyle = `rgb(${shade}, ${Math.max(74, shade - 26)}, ${Math.max(48, shade - 54)})`;
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "#111";
+  ctx.stroke();
+
+  drawBrickLines(ctx, points, leftSide);
+  ctx.restore();
+}
+
+function drawSideOpening(ctx, near, far, side) {
+  const leftSide = side === "left";
+  const points = leftSide
+    ? [
+        [near.x, near.y],
+        [far.x, far.y],
+        [far.x, far.y + far.h],
+        [near.x, near.y + near.h],
+      ]
+    : [
+        [near.x + near.w, near.y],
+        [far.x + far.w, far.y],
+        [far.x + far.w, far.y + far.h],
+        [near.x + near.w, near.y + near.h],
+      ];
+
+  ctx.save();
+  pathPoly(ctx, points);
+  ctx.fillStyle = "rgba(0,0,0,.42)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,.08)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawFrontWall(ctx, plane, depth) {
+  const shade = Math.max(78, 156 - depth * 20);
+  ctx.fillStyle = `rgb(${shade}, ${Math.max(62, shade - 30)}, ${Math.max(42, shade - 58)})`;
+  roundRect(ctx, plane.x, plane.y, plane.w, plane.h, 4, true, false);
+
+  ctx.strokeStyle = "#111";
+  ctx.lineWidth = depth === 1 ? 5 : 3;
+  roundRect(ctx, plane.x, plane.y, plane.w, plane.h, 4, false, true);
+
+  drawFrontBricks(ctx, plane, depth);
+}
+
+function drawFrontBricks(ctx, plane, depth) {
+  const rows = Math.max(3, 7 - depth);
+  const rowH = plane.h / rows;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(plane.x, plane.y, plane.w, plane.h);
+  ctx.clip();
+  ctx.strokeStyle = "rgba(0,0,0,.55)";
+  ctx.lineWidth = Math.max(1.2, 3 - depth * .4);
+
+  for (let row = 1; row < rows; row += 1) {
+    const y = plane.y + row * rowH;
+    ctx.beginPath();
+    ctx.moveTo(plane.x, y);
+    ctx.lineTo(plane.x + plane.w, y);
+    ctx.stroke();
+  }
+
+  for (let row = 0; row < rows; row += 1) {
+    const y0 = plane.y + row * rowH;
+    const offset = row % 2 === 0 ? 0 : plane.w / 5;
+    const brickW = plane.w / 3;
+    for (let x = plane.x - offset; x < plane.x + plane.w; x += brickW) {
+      ctx.beginPath();
+      ctx.moveTo(x, y0);
+      ctx.lineTo(x, y0 + rowH);
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
+}
+
+function drawBrickLines(ctx, points, leftSide) {
+  const topA = points[0];
+  const topB = points[1];
+  const bottomB = points[2];
+  const bottomA = points[3];
+
+  ctx.strokeStyle = "rgba(0,0,0,.42)";
+  ctx.lineWidth = 2;
+
+  for (let i = 1; i < 5; i += 1) {
+    const t = i / 5;
+    const a = lerpPoint(topA, bottomA, t);
+    const b = lerpPoint(topB, bottomB, t);
+    ctx.beginPath();
+    ctx.moveTo(a[0], a[1]);
+    ctx.lineTo(b[0], b[1]);
+    ctx.stroke();
+  }
+
+  for (let i = 1; i < 4; i += 1) {
+    const t = i / 4;
+    const a = lerpPoint(leftSide ? topA : topB, leftSide ? topB : topA, t);
+    const b = lerpPoint(leftSide ? bottomA : bottomB, leftSide ? bottomB : bottomA, t);
+    ctx.beginPath();
+    ctx.moveTo(a[0], a[1]);
+    ctx.lineTo(b[0], b[1]);
+    ctx.stroke();
+  }
+}
+
+function drawCeilingAndFloorLines(ctx, planes) {
+  ctx.strokeStyle = "rgba(255,255,255,.14)";
+  ctx.lineWidth = 2;
+
+  for (let i = 1; i < planes.length; i += 1) {
+    const p = planes[i];
+    ctx.strokeRect(p.x, p.y, p.w, p.h);
+  }
+
+  const center = { x: 180, y: 130 };
+  for (const p of planes.slice(1)) {
+    for (const point of [
+      [p.x, p.y],
+      [p.x + p.w, p.y],
+      [p.x, p.y + p.h],
+      [p.x + p.w, p.y + p.h],
+    ]) {
+      ctx.beginPath();
+      ctx.moveTo(center.x, center.y);
+      ctx.lineTo(point[0], point[1]);
+      ctx.stroke();
+    }
+  }
+}
+
+function drawViewSprite(frontBlockedDepth) {
+  const sprite = $("viewSprite");
+  sprite.className = "view-sprite hidden";
+  sprite.style.width = "";
+  sprite.style.height = "";
+  sprite.style.opacity = "1";
+
+  const candidates = [];
+  for (let depth = 1; depth <= 3; depth += 1) {
+    if (frontBlockedDepth !== null && depth >= frontBlockedDepth) break;
+    const c = viewCell(depth, 0);
+    const tile = tileAt(c.x, c.y);
+
+    if (tile === "E" && !state.progress.enemyDefeated) candidates.push({ type: "enemy", depth });
+    if (tile === "P" && !state.progress.potionTaken) candidates.push({ type: "potion", depth });
+    if (tile === "X") candidates.push({ type: "exit", depth });
+  }
+
+  const target = candidates[0];
+  if (!target) return;
+
+  sprite.classList.remove("hidden");
+  sprite.classList.add(target.type);
+
+  if (target.depth === 1) {
+    sprite.style.width = "56%";
+    sprite.style.height = "78%";
+  } else if (target.depth === 2) {
+    sprite.style.width = "36%";
+    sprite.style.height = "56%";
+    sprite.style.opacity = ".88";
+  } else {
+    sprite.style.width = "24%";
+    sprite.style.height = "40%";
+    sprite.style.opacity = ".7";
+  }
+}
+
+function pathPoly(ctx, points) {
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (const point of points.slice(1)) ctx.lineTo(point[0], point[1]);
+  ctx.closePath();
+}
+
+function lerpPoint(a, b, t) {
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
+
+function roundRect(ctx, x, y, w, h, radius, fill, stroke) {
+  const r = Math.min(radius, w / 2, h / 2);
+  ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.lineTo(x + w - r, y);
   ctx.quadraticCurveTo(x + w, y, x + w, y + r);
@@ -447,175 +826,28 @@ function roundedRectPath(ctx, x, y, w, h, r) {
   ctx.quadraticCurveTo(x, y + h, x, y + h - r);
   ctx.lineTo(x, y + r);
   ctx.quadraticCurveTo(x, y, x + r, y);
-}
-function drawPotionHint(ctx, rect, scale) {
-  ctx.save();
-  ctx.translate(rect.x + rect.w / 2, rect.y + rect.h * .66);
-  ctx.scale(scale, scale);
-  ctx.fillStyle = "#23c928";
-  ctx.strokeStyle = "#050505";
-  ctx.lineWidth = 5;
-  ctx.beginPath();
-  roundedRectPath(ctx, -18, -28, 36, 52, 8);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(-10, -40, 20, 16);
-  ctx.strokeRect(-10, -40, 20, 16);
-  ctx.restore();
-}
-function drawExitHint(ctx, rect, scale) {
-  ctx.save();
-  ctx.translate(rect.x + rect.w / 2, rect.y + rect.h * .52);
-  ctx.scale(scale, scale);
-  ctx.font = "900 34px sans-serif";
-  ctx.textAlign = "center";
-  ctx.lineWidth = 8;
-  ctx.strokeStyle = "#050505";
-  ctx.fillStyle = "#fff";
-  ctx.strokeText("出口", 0, 0);
-  ctx.fillText("出口", 0, 0);
-  ctx.restore();
-}
-function drawOpeningFrame(ctx, rect, depth) {
-  ctx.strokeStyle = depth === 1 ? "rgba(255,255,255,.20)" : "rgba(255,255,255,.10)";
-  ctx.lineWidth = depth === 1 ? 4 : 2;
-  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-}
-function drawFrontWall(ctx, rect, depth) {
-  ctx.fillStyle = depth === 1 ? "#7a6e51" : depth === 2 ? "#645940" : depth === 3 ? "#4e4636" : "#342f28";
-  ctx.strokeStyle = "#050505";
-  ctx.lineWidth = depth === 1 ? 7 : 5;
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-  drawBrickTexture(ctx, rect.x, rect.y, rect.w, rect.h, depth === 1 ? 1 : Math.max(.42, 1 / depth));
-}
-function drawFarFogWall(ctx, rect) {
-  const g = ctx.createRadialGradient(180, 130, 4, 180, 130, 86);
-  g.addColorStop(0, "rgba(42,46,42,.96)");
-  g.addColorStop(.58, "rgba(16,18,17,.96)");
-  g.addColorStop(1, "rgba(0,0,0,.98)");
-  ctx.fillStyle = g;
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-  ctx.strokeStyle = "#050505";
-  ctx.lineWidth = 4;
-  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-  ctx.fillStyle = "rgba(0,0,0,.22)";
-  [[160,112,17],[188,118,22],[174,138,19],[198,150,15],[154,150,14]].forEach(([x, y, r]) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); });
-}
-function drawBrickTexture(ctx, x, y, w, h, scale = 1) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(x, y, w, h);
-  ctx.clip();
-  ctx.strokeStyle = "rgba(0,0,0,.50)";
-  ctx.lineWidth = Math.max(1.5, 3 * scale);
-  const rowH = 22 * scale;
-  const brickW = 50 * scale;
-  for (let yy = y + rowH; yy < y + h; yy += rowH) { ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + w, yy); ctx.stroke(); }
-  for (let row = 0, yy = y; yy < y + h; row++, yy += rowH) {
-    const offset = row % 2 ? brickW / 2 : 0;
-    for (let xx = x - offset; xx < x + w; xx += brickW) { ctx.beginPath(); ctx.moveTo(xx, yy); ctx.lineTo(xx, yy + rowH); ctx.stroke(); }
-  }
-  ctx.restore();
-}
-function drawPerspectiveBricks(ctx, pts, depth) {
-  ctx.save();
-  ctx.strokeStyle = "rgba(0,0,0,.42)";
-  ctx.lineWidth = Math.max(1, 3 - depth * .35);
-  for (let i = 1; i <= 4; i++) {
-    const t = i / 5;
-    const a = lerpPoint(pts[0], pts[3], t);
-    const b = lerpPoint(pts[1], pts[2], t);
-    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
-  }
-  for (let i = 1; i <= 3; i++) {
-    const t = i / 4;
-    const a = lerpPoint(pts[0], pts[1], t);
-    const b = lerpPoint(pts[3], pts[2], t);
-    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
-  }
-  ctx.restore();
-}
-function lerpPoint(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; }
-function drawPoly(ctx, pts, fill = "#444", stroke = false) {
-  ctx.beginPath();
-  ctx.moveTo(pts[0][0], pts[0][1]);
-  pts.slice(1).forEach(p => ctx.lineTo(p[0], p[1]));
   ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
-  if (stroke) { ctx.strokeStyle = "#050505"; ctx.lineWidth = 5; ctx.stroke(); }
-}
-function updateViewSprite() {
-  const sprite = $("viewSprite");
-  sprite.className = "view-sprite hidden";
-  for (let depth = 1; depth <= 3; depth++) {
-    const f = forwardCell(depth);
-    const t = tileAt(f.x, f.y);
-    if (t === "#") return;
-    if (t === "E" && !state.enemyDefeated) {
-      sprite.className = "view-sprite enemy";
-      sprite.style.width = depth === 1 ? "58%" : depth === 2 ? "38%" : "24%";
-      sprite.style.opacity = depth === 3 ? ".58" : depth === 2 ? ".78" : "1";
-      return;
-    }
-    if (t === "P" && !state.potionTaken) {
-      sprite.className = "view-sprite potion";
-      sprite.style.width = depth === 1 ? "42%" : depth === 2 ? "28%" : "18%";
-      sprite.style.opacity = "1";
-      return;
-    }
-    if (t === "X") {
-      sprite.className = "view-sprite exit";
-      sprite.style.width = depth === 1 ? "50%" : "32%";
-      sprite.style.opacity = "1";
-      return;
-    }
-  }
-}
-function drawMiniMap() {
-  const canvas = $("miniMap");
-  const ctx = canvas.getContext("2d");
-  const cell = 18;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  for (let y = 0; y < baseMap.length; y++) {
-    for (let x = 0; x < baseMap[y].length; x++) {
-      const tile = tileAt(x, y);
-      ctx.strokeStyle = "#111";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(3 + x * cell, 3 + y * cell, cell, cell);
-      if (tile === "#") { ctx.fillStyle = "#111"; ctx.fillRect(3 + x * cell + 3, 3 + y * cell + 3, cell - 6, cell - 6); }
-      if (tile === "P" && !state.potionTaken) drawDot(ctx, x, y, "#22c52f");
-      if (tile === "E" && !state.enemyDefeated) drawDot(ctx, x, y, "#f04444");
-      if (tile === "X") drawDot(ctx, x, y, "#2288ff");
-    }
-  }
-  drawDot(ctx, state.x, state.y, "#ff1d1d", 7);
-  const d = DIRS[state.dir];
-  ctx.strokeStyle = "#ff1d1d";
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(3 + state.x * 18 + 9, 3 + state.y * 18 + 9);
-  ctx.lineTo(3 + (state.x + d.dx) * 18 + 9, 3 + (state.y + d.dy) * 18 + 9);
-  ctx.stroke();
-}
-function drawDot(ctx, x, y, color, r = 5) {
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(3 + x * 18 + 9, 3 + y * 18 + 9, r, 0, Math.PI * 2);
-  ctx.fill();
+  if (fill) ctx.fill();
+  if (stroke) ctx.stroke();
 }
 
-$("startButton").addEventListener("click", startStory);
-$("loadButton").addEventListener("click", loadGame);
-$("nextStoryButton").addEventListener("click", nextStory);
-$("turnLeftButton").addEventListener("click", () => turn(-1));
-$("turnRightButton").addEventListener("click", () => turn(1));
-$("forwardButton").addEventListener("click", forward);
-$("manualSaveButton").addEventListener("click", () => { save(true); render(); });
-$("manualLoadButton").addEventListener("click", loadGame);
-$("resetButton").addEventListener("click", resetGame);
-show("titleScreen");
+function bindEvents() {
+  $("startButton").addEventListener("click", startStory);
+  $("loadButton").addEventListener("click", () => loadGame(true));
+  $("nextStoryButton").addEventListener("click", nextStory);
+  $("turnLeftButton").addEventListener("click", () => movement.turn(-1));
+  $("forwardButton").addEventListener("click", () => movement.forward());
+  $("turnRightButton").addEventListener("click", () => movement.turn(1));
+  $("manualSaveButton").addEventListener("click", () => saveGame(true));
+  $("manualLoadButton").addEventListener("click", () => loadGame(false));
+  $("resetButton").addEventListener("click", resetGame);
+  $("deathNextButton").addEventListener("click", advanceDeathStep);
+}
+
+function boot() {
+  bindEvents();
+  hideDeathOverlay();
+  setScreen("titleScreen");
+}
+
+boot();
