@@ -37,11 +37,9 @@
       </header>
 
       <section id="view3d" class="dungeon-view" aria-label="ダンジョン表示">
-        <div class="ceiling"></div>
-        <div class="left-wall"></div>
-        <div class="right-wall"></div>
-        <div id="frontWall" class="front-wall"></div>
-        <div id="eventMarker" class="event-marker hidden"></div>
+        <canvas id="viewCanvas" width="360" height="260"></canvas>
+        <div id="viewSprite" class="view-sprite hidden"></div>
+        <div id="deathFade" class="death-fade hidden">死</div>
       </section>
 
       <section class="bottom-panels">
