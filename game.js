@@ -33,6 +33,7 @@ const achievements = [
 ];
 
 let storyIndex = 0;
+let deathStepIndex = 0;
 let state = makeNewState();
 const $ = id => document.getElementById(id);
 
@@ -63,6 +64,7 @@ function tileAt(x, y) {
   return baseMap[y][x];
 }
 function isSolid(x, y) { return tileAt(x, y) === "#"; }
+function isDeathOverlayOpen() { return !$('deathOverlay').classList.contains('hidden'); }
 function show(screenId) {
   ["titleScreen", "storyScreen", "gameScreen"].forEach(id => $(id).classList.toggle("hidden", id !== screenId));
 }
@@ -105,14 +107,14 @@ function setMessage(message, face = "neutral") {
 }
 
 function turn(delta) {
-  if (state.cleared) return;
+  if (state.cleared || isDeathOverlayOpen()) return;
   state.dir = (state.dir + delta + 4) % 4;
   render();
   if (maybeShowLookTutorial()) return;
   setMessage(`${DIRS[state.dir].name}を向いた。`, "neutral");
 }
 function forward() {
-  if (state.cleared) return;
+  if (state.cleared || isDeathOverlayOpen()) return;
   const d = DIRS[state.dir];
   const nx = state.x + d.dx;
   const ny = state.y + d.dy;
@@ -169,7 +171,7 @@ function fightEnemy() {
   const enemyHp = 12;
   if (state.attack < enemyHp) {
     setMessage("敵と遭遇しました。戦いましょう。\nしかし、今の攻撃力では押し負けてしまった……。", "angry");
-    die();
+    die(50);
     return;
   }
   state.hp = Math.max(1, state.hp - 8);
@@ -180,12 +182,14 @@ function fightEnemy() {
   state.hp = Math.min(state.maxHp, state.hp + 4);
   setMessage("敵を倒しました。レベルがあがりました。\n攻撃力と最大HPも少し上がりました。", "smile");
 }
-function die() {
-  playDeathFade();
+function die(damage = 50) {
+  state.hp = 0;
+  render();
   state.deaths += 1;
-  const boost = 1 + 0.5 * state.deaths;
-  state.maxHp = Math.floor(state.baseMaxHp * boost);
-  state.attack = Math.floor(state.baseAttack * boost);
+
+  // 死に戻りは1回で突破できる強さにする。
+  state.maxHp = state.baseMaxHp + 20 * state.deaths;
+  state.attack = state.baseAttack + 10 * state.deaths;
   state.hp = state.maxHp;
   state.x = 1;
   state.y = 1;
@@ -193,20 +197,34 @@ function die() {
   state.potionTaken = false;
   state.enemyDefeated = false;
   state.tutorialDeathReturnSeen = true;
-  if (!state.seenFirstDeath) {
-    state.seenFirstDeath = true;
-    setMessage("死に戻りしたようです。\n攻撃力と体力が向上しましたが、進捗が最初からになりました。", "cry");
-  } else {
-    setMessage("また最初に戻された。\n攻撃力と体力は、さらに上がっている。", "angry");
-  }
+
+  const firstTime = !state.seenFirstDeath;
+  state.seenFirstDeath = true;
   save(false);
+  render();
+
+  showDeathReturnSequence([
+    `${damage}のダメージを受けた。\n死んでしまった……`,
+    "ここは、、、？",
+    "体力がもどっている。\n攻撃力と体力の上限値が上がっている、、、？\nこれは一体、、、",
+    "死に戻りすると能力があがりますが、進捗が初めからになります",
+  ], firstTime ? "cry" : "angry");
 }
-function playDeathFade() {
-  const fade = $("deathFade");
-  fade.classList.remove("hidden", "show");
-  void fade.offsetWidth;
-  fade.classList.add("show");
-  setTimeout(() => fade.classList.add("hidden"), 1050);
+function showDeathReturnSequence(lines, face = "cry") {
+  deathStepIndex = 0;
+  setFace(face);
+  $('deathOverlay').classList.remove('hidden');
+  $('deathOverlayText').textContent = lines[deathStepIndex];
+  $('deathNextButton').onclick = () => {
+    deathStepIndex += 1;
+    if (deathStepIndex >= lines.length) {
+      $('deathOverlay').classList.add('hidden');
+      setMessage("死に戻り地点に戻された。\nもう一度、敵に挑もう。", face);
+      render();
+      return;
+    }
+    $('deathOverlayText').textContent = lines[deathStepIndex];
+  };
 }
 function clearGame() {
   state.cleared = true;
@@ -246,6 +264,7 @@ function resetGame() {
   localStorage.removeItem(SAVE_KEY);
   state = makeNewState();
   storyIndex = 0;
+  $('deathOverlay').classList.add('hidden');
   show("titleScreen");
 }
 
@@ -262,7 +281,8 @@ function render() {
 }
 function basis() {
   const f = DIRS[state.dir];
-  return { f, l: { dx: -f.dy, dy: f.dx } };
+  // 画面上の「左」を正しく取る。以前は左右が反転していた。
+  return { f, l: { dx: f.dy, dy: -f.dx } };
 }
 function viewCell(depth, side) {
   const b = basis();
@@ -286,7 +306,7 @@ function drawDungeonView() {
 
   drawFarFogWall(ctx, rects[4]);
 
-  // 遠いマスから近いマスへ描画する。近い壁がある場合は必ず上から隠す。
+  // 遠くから描画し、近くの壁を最後に重ねる。
   for (let depth = 4; depth >= 1; depth--) {
     const center = viewCell(depth, 0);
     const near = rects[depth - 1];
@@ -294,6 +314,8 @@ function drawDungeonView() {
 
     drawSideWallIfNeeded(ctx, near, far, depth, -1);
     drawSideWallIfNeeded(ctx, near, far, depth, 1);
+    drawFrontSideBlockIfNeeded(ctx, far, depth, -1);
+    drawFrontSideBlockIfNeeded(ctx, far, depth, 1);
 
     if (isSolid(center.x, center.y)) {
       drawFrontWall(ctx, far, depth);
@@ -329,6 +351,19 @@ function drawSideWallIfNeeded(ctx, near, far, depth, side) {
     ? [[near.x, near.y], [far.x, far.y], [far.x, far.y + far.h], [near.x, near.y + near.h]]
     : [[near.x + near.w, near.y], [far.x + far.w, far.y], [far.x + far.w, far.y + far.h], [near.x + near.w, near.y + near.h]];
   const color = depth === 1 ? "#75694d" : depth === 2 ? "#685d45" : depth === 3 ? "#554c39" : "#40382a";
+  drawPoly(ctx, pts, color, true);
+  drawPerspectiveBricks(ctx, pts, depth);
+}
+function drawFrontSideBlockIfNeeded(ctx, rect, depth, side) {
+  const cell = viewCell(depth, side);
+  if (!isSolid(cell.x, cell.y)) return;
+  // 前方左右1マスの「壁の存在」をはっきり出すため、端面を小さく重ねる。
+  const width = Math.max(8, rect.w * .18);
+  const x = side < 0 ? rect.x - width : rect.x + rect.w;
+  const pts = side < 0
+    ? [[x, rect.y + 4], [rect.x, rect.y], [rect.x, rect.y + rect.h], [x, rect.y + rect.h - 4]]
+    : [[rect.x + rect.w, rect.y], [x + width, rect.y + 4], [x + width, rect.y + rect.h - 4], [rect.x + rect.w, rect.y + rect.h]];
+  const color = depth === 1 ? "#817454" : depth === 2 ? "#6c6047" : "#514837";
   drawPoly(ctx, pts, color, true);
   drawPerspectiveBricks(ctx, pts, depth);
 }
