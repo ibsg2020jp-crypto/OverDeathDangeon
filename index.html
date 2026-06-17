@@ -39,7 +39,6 @@
       <section id="view3d" class="dungeon-view" aria-label="ダンジョン表示">
         <canvas id="viewCanvas" width="360" height="260"></canvas>
         <div id="viewSprite" class="view-sprite hidden"></div>
-        <div id="deathFade" class="death-fade hidden">死</div>
       </section>
 
       <section class="bottom-panels">
@@ -71,6 +70,13 @@
       </footer>
     </section>
   </main>
+
+  <section id="deathOverlay" class="death-overlay hidden" aria-live="assertive">
+    <div class="death-box">
+      <p id="deathOverlayText"></p>
+      <button id="deathNextButton" class="primary-button">タップして進む</button>
+    </div>
+  </section>
 
   <script src="game.js"></script>
 </body>
