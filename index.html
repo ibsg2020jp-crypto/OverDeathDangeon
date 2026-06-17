@@ -50,6 +50,7 @@
             <p>HP <strong id="hpText">34/34</strong></p>
             <p>攻撃 <strong id="attackText">5</strong></p>
             <p>レベル <strong id="levelText">1</strong></p>
+            <p>薬 <strong id="potionText">0</strong></p>
             <p>死亡 <strong id="deathText">0</strong></p>
             <p>読込 <strong id="loadText">0</strong></p>
           </div>
@@ -65,6 +66,11 @@
         <button id="turnRightButton">右を向く</button>
       </nav>
 
+      <nav class="menu-row" aria-label="メニュー">
+        <button id="itemMenuButton" class="ghost-button">アイテム</button>
+        <button id="statusButton" class="ghost-button">ステータス</button>
+      </nav>
+
       <footer class="save-row">
         <button id="manualSaveButton" class="ghost-button">保存</button>
         <button id="manualLoadButton" class="ghost-button">読込</button>
@@ -77,6 +83,15 @@
     <div class="death-box">
       <p id="deathOverlayText"></p>
       <button id="deathNextButton" class="primary-button">タップして進む</button>
+    </div>
+  </section>
+
+  <section id="menuOverlay" class="menu-overlay hidden" aria-live="polite">
+    <div class="menu-box">
+      <h2 id="menuTitle">メニュー</h2>
+      <p id="menuText"></p>
+      <div id="menuActions" class="menu-actions"></div>
+      <button id="closeMenuButton" class="ghost-button">閉じる</button>
     </div>
   </section>
 
