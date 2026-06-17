@@ -29,21 +29,23 @@
       <header class="hud-top">
         <div class="name-block">
           <span class="hand-label">主人公</span>
-          <div class="hp-shell"><div id="hpBar" class="hp-bar"></div></div>
+          <div class="hp-shell" aria-label="HP">
+            <div id="hpBar" class="hp-bar"></div>
+          </div>
         </div>
-        <div class="minimap-wrap">
+        <div class="minimap-wrap" aria-label="ミニマップ">
           <canvas id="miniMap" width="96" height="96"></canvas>
         </div>
       </header>
 
-      <section id="view3d" class="dungeon-view" aria-label="ダンジョン表示">
+      <section class="dungeon-view" aria-label="ダンジョン表示">
         <canvas id="viewCanvas" width="360" height="260"></canvas>
         <div id="viewSprite" class="view-sprite hidden"></div>
       </section>
 
       <section class="bottom-panels">
         <aside class="status-panel">
-          <div id="heroPortrait" class="portrait hero neutral"></div>
+          <div id="heroPortrait" class="portrait hero neutral" aria-label="主人公の表情"></div>
           <div class="stats">
             <p>HP <strong id="hpText">34/34</strong></p>
             <p>攻撃 <strong id="attackText">5</strong></p>
@@ -52,7 +54,7 @@
             <p>読込 <strong id="loadText">0</strong></p>
           </div>
         </aside>
-        <section class="log-panel">
+        <section class="log-panel" aria-live="polite">
           <p id="messageText">閉じ込められた。先に進まないと……。</p>
         </section>
       </section>
