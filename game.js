@@ -33,10 +33,10 @@ const achievements = [
 ];
 
 let storyIndex = 0;
-let state = makeNewState();
+let deathStepIndex = 0;
 let deathReturning = false;
-let pendingDeathDamage = null;
-let deathReturnTimer = null;
+let deathSequence = [];
+let state = makeNewState();
 const $ = id => document.getElementById(id);
 
 function makeNewState() {
@@ -193,7 +193,7 @@ function fightEnemy() {
   const enemyHp = 12;
   if (state.attack < enemyHp) {
     setMessage("敵と遭遇しました。戦いましょう。\nしかし、今の攻撃力では押し負けてしまった……。", "angry");
-    die(50);
+    beginDeathReturn(50);
     return;
   }
   state.hp = Math.max(1, state.hp - 8);
@@ -206,42 +206,13 @@ function fightEnemy() {
   render();
   save(false);
 }
-function die(damage = 50) {
+
+function beginDeathReturn(damage = 50) {
   if (deathReturning) return;
-  pendingDeathDamage = damage;
+
   state.hp = 0;
   render();
-  showDeathOverlay(`${damage}のダメージを受けた。\n死んでしまった……`);
-  deathReturnTimer = setTimeout(completeDeathReturn, 900);
-}
-function showDeathOverlay(text) {
-  const overlay = $("deathOverlay");
-  const textEl = $("deathOverlayText");
-  const button = $("deathNextButton");
-  deathReturning = true;
-  if (!overlay || !textEl || !button) {
-    completeDeathReturn();
-    return;
-  }
-  textEl.textContent = text;
-  button.disabled = false;
-  button.textContent = "死に戻る";
-  button.onclick = completeDeathReturn;
-  overlay.classList.remove("hidden");
-}
-function hideDeathOverlay() {
-  if (deathReturnTimer) clearTimeout(deathReturnTimer);
-  deathReturnTimer = null;
-  pendingDeathDamage = null;
-  deathReturning = false;
-  const overlay = $("deathOverlay");
-  if (overlay) overlay.classList.add("hidden");
-}
-function completeDeathReturn() {
-  if (pendingDeathDamage === null && !deathReturning) return;
-  if (deathReturnTimer) clearTimeout(deathReturnTimer);
-  deathReturnTimer = null;
-  const firstTime = !state.seenFirstDeath;
+
   state.deaths += 1;
   state.maxHp = state.baseMaxHp + 20 * state.deaths;
   state.attack = state.baseAttack + 10 * state.deaths;
@@ -253,13 +224,65 @@ function completeDeathReturn() {
   state.enemyDefeated = false;
   state.tutorialDeathReturnSeen = true;
   state.seenFirstDeath = true;
+  save(false);
+
+  deathSequence = [
+    `${damage}のダメージを受けた。\n死んでしまった……`,
+    "ここは、、、？",
+    "体力がもどっている。\n攻撃力と体力の上限値が上がっている、、、？\nこれは一体、、、",
+    "死に戻りすると能力があがりますが、進捗が初めからになります",
+  ];
+  deathStepIndex = 0;
+  deathReturning = true;
+  setFace("cry");
+  showDeathStep();
+}
+function ensureDeathOverlay() {
+  let overlay = $("deathOverlay");
+  if (overlay) return overlay;
+  overlay = document.createElement("section");
+  overlay.id = "deathOverlay";
+  overlay.className = "death-overlay";
+  overlay.innerHTML = `<div class="death-box"><p id="deathOverlayText"></p><button id="deathNextButton" class="primary-button">タップして進む</button></div>`;
+  document.body.appendChild(overlay);
+  return overlay;
+}
+function showDeathStep() {
+  const overlay = ensureDeathOverlay();
+  const textEl = $("deathOverlayText");
+  const button = $("deathNextButton");
+  if (!overlay || !textEl || !button) {
+    finishDeathReturn();
+    return;
+  }
+  textEl.textContent = deathSequence[deathStepIndex] || "死に戻りした。";
+  button.textContent = deathStepIndex >= deathSequence.length - 1 ? "探索に戻る" : "タップして進む";
+  button.onclick = advanceDeathStep;
+  overlay.classList.remove("hidden");
+}
+function advanceDeathStep() {
+  if (!deathReturning) return;
+  deathStepIndex += 1;
+  if (deathStepIndex >= deathSequence.length) {
+    finishDeathReturn();
+    return;
+  }
+  showDeathStep();
+}
+function finishDeathReturn() {
   hideDeathOverlay();
-  setMessage(firstTime
-    ? "死に戻りしたようです。\n攻撃力と体力が向上しましたが、進捗が最初からになりました。"
-    : "また最初に戻された。\n攻撃力と体力は、さらに上がっている。", firstTime ? "cry" : "angry");
+  setMessage("死に戻り地点に戻された。\nもう一度、敵に挑もう。", "cry");
   render();
   save(false);
 }
+function hideDeathOverlay() {
+  deathReturning = false;
+  deathSequence = [];
+  deathStepIndex = 0;
+  const overlay = $("deathOverlay");
+  if (overlay) overlay.classList.add("hidden");
+}
+
 function clearGame() {
   state.cleared = true;
   const newly = unlockAchievements();
@@ -288,11 +311,8 @@ function loadGame() {
     alert("まだセーブデータがない。");
     return false;
   }
-  try {
-    state = normalizeState(JSON.parse(raw));
-  } catch {
-    state = makeNewState();
-  }
+  try { state = normalizeState(JSON.parse(raw)); }
+  catch { state = makeNewState(); }
   state.loads += 1;
   localStorage.setItem(SAVE_KEY, JSON.stringify(state));
   startGame("記憶をたどって再開した。\n読込回数が記録された。", "neutral");
@@ -320,7 +340,8 @@ function render() {
 }
 function basis() {
   const f = DIRS[state.dir];
-  return { f, l: { dx: -f.dy, dy: f.dx } };
+  // 画面上の「左」。東向きなら北、南向きなら東を指す。
+  return { f, l: { dx: f.dy, dy: -f.dx } };
 }
 function viewCell(depth, side) {
   const b = basis();
@@ -347,6 +368,8 @@ function drawDungeonView() {
     const far = rects[depth];
     drawSideWallIfNeeded(ctx, near, far, depth, -1);
     drawSideWallIfNeeded(ctx, near, far, depth, 1);
+    drawFrontSideBlockIfNeeded(ctx, far, depth, -1);
+    drawFrontSideBlockIfNeeded(ctx, far, depth, 1);
     if (isSolid(center.x, center.y)) drawFrontWall(ctx, far, depth);
     else drawOpeningFrame(ctx, far, depth);
   }
@@ -380,6 +403,18 @@ function drawSideWallIfNeeded(ctx, near, far, depth, side) {
   drawPoly(ctx, pts, color, true);
   drawPerspectiveBricks(ctx, pts, depth);
 }
+function drawFrontSideBlockIfNeeded(ctx, rect, depth, side) {
+  const cell = viewCell(depth, side);
+  if (!isSolid(cell.x, cell.y)) return;
+  const width = Math.max(8, rect.w * .18);
+  const x = side < 0 ? rect.x - width : rect.x + rect.w;
+  const pts = side < 0
+    ? [[x, rect.y + 4], [rect.x, rect.y], [rect.x, rect.y + rect.h], [x, rect.y + rect.h - 4]]
+    : [[rect.x + rect.w, rect.y], [x + width, rect.y + 4], [x + width, rect.y + rect.h - 4], [rect.x + rect.w, rect.y + rect.h]];
+  const color = depth === 1 ? "#817454" : depth === 2 ? "#6c6047" : "#514837";
+  drawPoly(ctx, pts, color, true);
+  drawPerspectiveBricks(ctx, pts, depth);
+}
 function drawVisibleObjects(ctx) {
   const slots = [
     { depth: 1, rect: { x: 112, y: 82, w: 136, h: 144 }, scale: 1 },
@@ -402,10 +437,7 @@ function drawEnemyHint(ctx, rect) {
   ctx.fill();
 }
 function roundedRectPath(ctx, x, y, w, h, r) {
-  if (typeof ctx.roundRect === "function") {
-    ctx.roundRect(x, y, w, h, r);
-    return;
-  }
+  if (typeof ctx.roundRect === "function") { ctx.roundRect(x, y, w, h, r); return; }
   ctx.moveTo(x + r, y);
   ctx.lineTo(x + w - r, y);
   ctx.quadraticCurveTo(x + w, y, x + w, y + r);
