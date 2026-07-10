@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_NAME = 'overdeath-dungeon-v0-20260710-3';
+const CACHE_NAME = 'overdeath-dungeon-v0-20260710-4';
 const APP_SHELL = [
   './',
   './index.html',
