@@ -1,24 +1,124 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320">
-<rect width="240" height="320" fill="none"/>
-<g fill="none" stroke="#111" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
-<path d="M68 70c12-35 31-52 52-52s41 17 53 52"/>
-<path d="M83 26l9 45M157 26l-9 45"/>
-<path d="M76 78c-18 15-28 41-23 67 8 42 37 58 67 58s59-16 67-58c5-26-5-52-23-67" fill="#333"/>
-<path d="M58 128c-31 20-49 55-46 95M182 128c31 20 49 55 46 95"/>
-<path d="M71 205c-18 32-25 65-21 98M169 205c18 32 25 65 21 98"/>
-<path d="M83 302h-37M157 302h37"/>
-<path d="M49 215l-28 32M191 215l28 32"/>
-<path d="M89 113l25 8M151 113l-25 8"/>
-<path d="M94 152c17 10 35 10 52 0"/>
-<path d="M104 151l4 22M132 151l-4 22"/>
-</g>
-<g fill="#e33" stroke="#111" stroke-width="4">
-<circle cx="96" cy="124" r="7"/><circle cx="144" cy="124" r="7"/>
-</g>
-<g fill="#fff" stroke="#111" stroke-width="3">
-<path d="M96 158l9 25 8-25zM127 158l8 25 9-25z"/>
-</g>
-<g fill="none" stroke="#111" stroke-width="5" stroke-linecap="round">
-<path d="M30 245l-18 9M210 245l18 9M25 260l-18 15M215 260l18 15"/>
-</g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 430" role="img" aria-label="松明を持つ小柄な狼獣人">
+  <defs>
+    <linearGradient id="fur" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a7794f"/>
+      <stop offset=".48" stop-color="#725039"/>
+      <stop offset="1" stop-color="#402c26"/>
+    </linearGradient>
+    <linearGradient id="furLight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c39a68"/>
+      <stop offset="1" stop-color="#76513a"/>
+    </linearGradient>
+    <linearGradient id="leather" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9a6037"/>
+      <stop offset="1" stop-color="#56331f"/>
+    </linearGradient>
+    <radialGradient id="eyeGlow">
+      <stop offset="0" stop-color="#fff8a7"/>
+      <stop offset=".45" stop-color="#ffd338"/>
+      <stop offset="1" stop-color="#e78b00"/>
+    </radialGradient>
+    <radialGradient id="flameCore" cx="50%" cy="65%">
+      <stop offset="0" stop-color="#fffbd0"/>
+      <stop offset=".38" stop-color="#ffd243"/>
+      <stop offset=".72" stop-color="#ff7622"/>
+      <stop offset="1" stop-color="#d92c11"/>
+    </radialGradient>
+    <filter id="torchGlow" x="-150%" y="-150%" width="400%" height="400%">
+      <feGaussianBlur stdDeviation="13"/>
+    </filter>
+    <filter id="eyeBlur" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+  </defs>
+
+  <!-- torch light, kept transparent outside the glow -->
+  <circle cx="293" cy="78" r="58" fill="#ff8b24" opacity=".18" filter="url(#torchGlow)"/>
+
+  <!-- tail -->
+  <path d="M111 305c-49 10-70-20-57-53 8 27 25 30 50 13 16-11 33-12 46-4-6 18-19 37-39 44Z"
+        fill="url(#fur)" stroke="#211713" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M65 264c13 8 26 9 40 3" fill="none" stroke="#c09567" stroke-width="6" stroke-linecap="round" opacity=".65"/>
+
+  <!-- legs and feet -->
+  <path d="M135 297c-17 31-20 60-15 91l35 1 15-77Z" fill="url(#fur)" stroke="#211713" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M202 299c17 31 21 60 16 91l-36 1-14-78Z" fill="url(#fur)" stroke="#211713" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M116 384c-11 11-12 25-4 32 15 7 38 4 53-4l-8-22Z" fill="#75513b" stroke="#211713" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M221 384c11 11 12 25 4 32-15 7-38 4-53-4l8-22Z" fill="#75513b" stroke="#211713" stroke-width="8" stroke-linejoin="round"/>
+  <g fill="none" stroke="#211713" stroke-width="5" stroke-linecap="round">
+    <path d="M121 405l-4 10M137 406l-2 11M153 402l2 10"/>
+    <path d="M216 405l4 10M200 406l2 11M184 402l-2 10"/>
+  </g>
+
+  <!-- body -->
+  <path d="M116 174c-25 23-32 74-15 120 11 29 36 46 70 46 35 0 60-17 71-46 17-46 10-96-16-120Z"
+        fill="url(#fur)" stroke="#211713" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M133 193c13 19 24 28 38 34 14-6 26-15 39-34-5 31-18 49-39 58-20-9-33-27-38-58Z"
+        fill="#c49a6c" opacity=".72"/>
+  <path d="M124 213c13 8 24 12 34 13M218 213c-13 8-24 12-34 13" fill="none" stroke="#d2ab7b" stroke-width="6" stroke-linecap="round" opacity=".5"/>
+
+  <!-- left arm and claw -->
+  <path d="M122 190c-28 0-47 20-51 54-3 25 5 47 22 60 13 1 25-7 31-19-10-18-13-40-5-61Z"
+        fill="url(#fur)" stroke="#211713" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M91 296c-10 13-8 29 4 34 15 0 29-8 35-21-5-12-16-18-27-19Z"
+        fill="#704c37" stroke="#211713" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M99 312l-9 13M111 315l-5 15M121 311l1 13" fill="none" stroke="#e0c09b" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- right arm holding torch -->
+  <path d="M222 188c29-3 52 14 59 43 6 24 1 45-15 61-14 3-27-4-35-15 8-18 8-37-2-55Z"
+        fill="url(#furLight)" stroke="#211713" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M244 274c-1 18 11 29 26 27 12-7 18-22 13-36-11-9-26-7-39 9Z"
+        fill="#825a3d" stroke="#211713" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M257 278l13 12M263 270l14 8M251 288l8 10" fill="none" stroke="#e0c09b" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- leather harness -->
+  <path d="M127 193l91 106" fill="none" stroke="#2c1d16" stroke-width="18" stroke-linecap="round"/>
+  <path d="M127 193l91 106" fill="none" stroke="#8c5632" stroke-width="11" stroke-linecap="round"/>
+  <path d="M106 285c41 15 88 15 129 0l4 32c-45 17-94 17-139 0Z"
+        fill="url(#leather)" stroke="#211713" stroke-width="8" stroke-linejoin="round"/>
+  <rect x="154" y="284" width="37" height="28" rx="5" fill="#c38b46" stroke="#211713" stroke-width="7"/>
+  <rect x="164" y="291" width="17" height="14" rx="2" fill="#51321f"/>
+  <path d="M116 314l22 51 32-25 30 25 25-52c-34 12-76 13-109 1Z"
+        fill="#714526" stroke="#211713" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M137 337l-10 17M202 337l12 17" fill="none" stroke="#ba7b42" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- head silhouette -->
+  <path d="M102 115 86 48l44 29c13-12 28-18 43-18 16 0 31 6 44 18l43-29-14 67c17 18 23 41 16 62-11 33-43 54-89 54-45 0-78-21-89-54-7-21 0-44 18-62Z"
+        fill="url(#furLight)" stroke="#211713" stroke-width="10" stroke-linejoin="round"/>
+
+  <!-- ears -->
+  <path d="M99 75 94 61l24 18Z" fill="#7d463b" stroke="#211713" stroke-width="5"/>
+  <path d="M246 75l4-14-24 18Z" fill="#7d463b" stroke="#211713" stroke-width="5"/>
+
+  <!-- mane and tufts -->
+  <path d="M117 91c-13 2-24 12-28 25l20-4-13 18 23-6-5 20 25-13M229 91c13 2 24 12 28 25l-20-4 13 18-23-6 5 20-25-13"
+        fill="#76513b" stroke="#211713" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M135 72l13-20 8 19 16-26 10 27 16-20 7 22" fill="#8d6849" stroke="#211713" stroke-width="7" stroke-linejoin="round"/>
+
+  <!-- brow -->
+  <path d="M116 126c18-17 37-18 51-5M230 126c-18-17-37-18-51-5" fill="none" stroke="#211713" stroke-width="11" stroke-linecap="round"/>
+
+  <!-- eye glow -->
+  <ellipse cx="143" cy="134" rx="19" ry="12" fill="#ffb81c" opacity=".55" filter="url(#eyeBlur)"/>
+  <ellipse cx="204" cy="134" rx="19" ry="12" fill="#ffb81c" opacity=".55" filter="url(#eyeBlur)"/>
+  <path d="M124 130c14-7 27-6 39 3-12 13-27 14-39-3Z" fill="url(#eyeGlow)" stroke="#211713" stroke-width="6"/>
+  <path d="M222 130c-14-7-27-6-39 3 12 13 27 14 39-3Z" fill="url(#eyeGlow)" stroke="#211713" stroke-width="6"/>
+  <circle cx="147" cy="133" r="3" fill="#28160c"/>
+  <circle cx="199" cy="133" r="3" fill="#28160c"/>
+
+  <!-- muzzle -->
+  <path d="M133 153c9-15 24-22 40-22 17 0 32 7 41 22 7 12 5 30-4 41-10 13-24 20-37 20-14 0-28-7-38-20-9-11-10-29-2-41Z"
+        fill="#bd966d" stroke="#211713" stroke-width="8"/>
+  <path d="M153 157c12-8 28-8 40 0-2 12-9 18-20 18-10 0-18-6-20-18Z" fill="#35241f" stroke="#211713" stroke-width="6"/>
+  <path d="M139 186c22 12 47 12 68 0-5 22-19 33-34 33-16 0-29-11-34-33Z" fill="#321c1b" stroke="#211713" stroke-width="7"/>
+  <path d="m150 190 8 17 8-14M196 190l-8 17-8-14" fill="#f1dfc7" stroke="#211713" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M128 164l-17 8M219 164l17 8" fill="none" stroke="#211713" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- torch behind the hand but in front of body -->
+  <path d="M267 279 299 105" fill="none" stroke="#211713" stroke-width="19" stroke-linecap="round"/>
+  <path d="M267 279 299 105" fill="none" stroke="#7c4a25" stroke-width="11" stroke-linecap="round"/>
+  <path d="M286 111h27l-4 20h-20Z" fill="#39241a" stroke="#211713" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M300 113c-30-29-2-45-3-68 19 12 19 26 16 37 13-9 20-23 18-39 25 25 12 52-7 71-7 8-17 11-24-1Z"
+        fill="url(#flameCore)" stroke="#6e1f0e" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M306 101c-9-17 5-23 7-36 9 10 6 23 0 35Z" fill="#fff4a8"/>
 </svg>
