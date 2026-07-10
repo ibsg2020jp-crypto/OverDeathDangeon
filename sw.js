@@ -1,16 +1,19 @@
 'use strict';
 
-const CACHE_NAME = 'overdeath-dungeon-v0-20260710-5';
+const CACHE_NAME = 'overdeath-dungeon-v0-20260710-6';
 const APP_SHELL = [
   './',
   './index.html',
   './style.css',
   './enemy-fix.css',
+  './boss.css',
   './game.js',
+  './story-patch.js',
   './patch.js',
   './combat.js',
   './render-fix.js',
   './effects.js',
+  './boss.js',
   './manifest.webmanifest',
   './assets/app-icon.svg',
   './assets/hero-neutral.svg',
