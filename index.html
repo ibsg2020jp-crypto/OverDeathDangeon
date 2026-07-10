@@ -4,7 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#f8f7f0" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="OverDeath" />
+  <meta name="description" content="死に戻るたびに強くなる、一人称視点の洞窟RPGプロトタイプ。" />
   <title>OverDeath Dungeon prototype v0</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="assets/app-icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="assets/app-icon.svg" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -97,6 +104,7 @@
 
   <script src="game.js"></script>
   <script src="patch.js"></script>
+  <script src="combat.js"></script>
   <script src="render-fix.js"></script>
   <script src="effects.js"></script>
   <script>
@@ -105,6 +113,14 @@
       localStorage.removeItem('overdeath-dungeon-prototype-v0:auto');
       localStorage.removeItem('overdeath-dungeon-prototype-v0:manual');
     }, true);
+
+    if ('serviceWorker' in navigator && location.protocol === 'https:') {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(error => {
+          console.warn('Service worker registration failed:', error);
+        });
+      });
+    }
   </script>
 </body>
 </html>
