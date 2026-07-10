@@ -1,0 +1,20 @@
+{
+  "name": "OverDeath Dungeon prototype v0",
+  "short_name": "OverDeath",
+  "description": "死に戻るたびに強くなる、一人称視点の洞窟RPGプロトタイプ。",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ece7db",
+  "theme_color": "#f8f7f0",
+  "icons": [
+    {
+      "src": "assets/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
