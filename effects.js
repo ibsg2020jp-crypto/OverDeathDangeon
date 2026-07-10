@@ -65,6 +65,8 @@
     }, EFFECT_MS);
   }
 
+  runtime.triggerHit = triggerHit;
+
   const baseBeginDeathReturn = beginDeathReturn;
   beginDeathReturn = function patchedBeginDeathReturn(damage = MapState.enemy.damage) {
     runtime.ensureState?.();
