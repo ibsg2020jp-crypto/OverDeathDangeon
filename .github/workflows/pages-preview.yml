@@ -17,6 +17,7 @@ concurrency:
 
 jobs:
   deploy:
+    # The public preview always follows the explicitly updated web-preview branch.
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
