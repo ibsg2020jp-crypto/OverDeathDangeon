@@ -1,10 +1,11 @@
 'use strict';
 
-const CACHE_NAME = 'overdeath-dungeon-v0-20260710-4';
+const CACHE_NAME = 'overdeath-dungeon-v0-20260710-5';
 const APP_SHELL = [
   './',
   './index.html',
   './style.css',
+  './enemy-fix.css',
   './game.js',
   './patch.js',
   './combat.js',
@@ -17,7 +18,7 @@ const APP_SHELL = [
   './assets/hero-angry.svg',
   './assets/hero-cry.svg',
   './assets/cave-collapse.svg',
-  './assets/enemy-wolfman.svg'
+  './assets/enemy-wolfman-v2.svg'
 ];
 
 self.addEventListener('install', event => {
